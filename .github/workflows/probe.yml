@@ -1,0 +1,102 @@
+name: probe stable tunnels
+
+on:
+  push:
+    paths:
+      - 'probe.trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: tiny local server
+        run: |
+          mkdir -p /tmp/site && echo 'MK-MALIK-PROBE-OK' > /tmp/site/index.html
+          (cd /tmp/site && nohup python3 -m http.server 9911 > /tmp/probe-server.log 2>&1 &)
+          sleep 2
+          curl -sf http://127.0.0.1:9911/
+
+      - name: report helper
+        run: |
+          cat > /tmp/report.sh <<'SH'
+          #!/usr/bin/env bash
+          # report_context <context> <description>
+          python3 - "$1" "$2" <<'PY'
+          import json, os, sys, urllib.request
+          ctx, desc = sys.argv[1], sys.argv[2][:140]
+          body = json.dumps({"state": "success", "context": ctx, "description": desc}).encode()
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['R']}/statuses/{os.environ['SHA']}",
+              data=body, method='POST',
+              headers={"Authorization": f"Bearer {os.environ['T']}",
+                       "Accept": "application/vnd.github+json",
+                       "Content-Type": "application/json"})
+          print(ctx, "->", desc)
+          urllib.request.urlopen(req).read()
+          PY
+          SH
+          chmod +x /tmp/report.sh
+
+      - name: serveo.net
+        env:
+          R: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          T: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/id_ed25519 <<< y >/dev/null 2>&1 || true
+          timeout 55 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o ServerAliveInterval=20 -N -R mkmalik-probe:80:127.0.0.1:9911 serveo.net \
+            > /tmp/serveo.log 2>&1 &
+          sleep 35
+          echo "--- serveo log ---"; cat /tmp/serveo.log
+          URL=$(grep -oE 'https://[a-z0-9.-]+\.serveo\.net' /tmp/serveo.log | head -1 || true)
+          if [ -n "$URL" ]; then
+            CODE=$(curl -s -o /tmp/s.txt -w '%{http_code}' --max-time 20 "$URL/" || echo 000)
+            /tmp/report.sh probe-serveo "$URL [$CODE] $(head -c 20 /tmp/s.txt)"
+          else
+            /tmp/report.sh probe-serveo "FAIL $(tail -c 90 /tmp/serveo.log | tr '\n' ' ')"
+          fi
+
+      - name: localhost.run
+        env:
+          R: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          T: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          timeout 50 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o ServerAliveInterval=20 -N -R 80:127.0.0.1:9911 localhost.run \
+            > /tmp/lhr.log 2>&1 &
+          sleep 32
+          echo "--- lhr log ---"; cat /tmp/lhr.log
+          URL=$(grep -oE 'https://[a-z0-9.-]+\.lhr\.life' /tmp/lhr.log | head -1 || true)
+          if [ -n "$URL" ]; then
+            CODE=$(curl -s -o /tmp/l.txt -w '%{http_code}' --max-time 20 "$URL/" || echo 000)
+            /tmp/report.sh probe-lhr "$URL [$CODE] $(head -c 20 /tmp/l.txt)"
+          else
+            /tmp/report.sh probe-lhr "FAIL $(tail -c 90 /tmp/lhr.log | tr '\n' ' ')"
+          fi
+
+      - name: localtunnel named subdomain
+        env:
+          R: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          T: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx --yes localtunnel --port 9911 --subdomain mk-malik-probe > /tmp/lt.log 2>&1 &
+          sleep 25
+          echo "--- lt log ---"; cat /tmp/lt.log
+          URL=$(grep -oE 'https://[a-z0-9.-]+\.loca\.lt' /tmp/lt.log | head -1 || true)
+          if [ -n "$URL" ]; then
+            CODE=$(curl -s -o /tmp/t.txt -w '%{http_code}' --max-time 20 "$URL/" || echo 000)
+            /tmp/report.sh probe-lt "$URL [$CODE] $(head -c 20 /tmp/t.txt)"
+          else
+            /tmp/report.sh probe-lt "FAIL $(tail -c 90 /tmp/lt.log | tr '\n' ' ')"
+          fi
