@@ -41,24 +41,30 @@ jobs:
 
           UA='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
 
-          probe () { # probe <label> <base-url>   (base ends with /)
+          # one commit status per check: descriptions are capped at 140 chars
+          probe () { # probe <label> <base-url>
             local label="$1" base="$2"
-            local hc js sw man icon
-            hc=$(curl -s -o /tmp/h -w '%{http_code}/%{content_type}' -A "$UA" --max-time 25 "$base" || echo 000/err)
-            echo "[$label] index.html -> $hc  :: $(head -c 80 /tmp/h | tr -d '\n')"
-            js=$(curl -s -o /tmp/j -w '%{http_code}/%{content_type}' --max-time 25 "$base""js/app.js" || echo 000/err)
-            echo "[$label] js/app.js  -> $js"
+            local js sw man icon css
+            js=$(curl -s -o /dev/null -w '%{http_code}/%{content_type}' --max-time 25 "$base""js/app.js" || echo 000/err)
             sw=$(curl -s -o /dev/null -w '%{http_code}/%{content_type}' --max-time 25 "$base""sw.js" || echo 000/err)
-            echo "[$label] sw.js      -> $sw"
             man=$(curl -s -o /dev/null -w '%{http_code}/%{content_type}' --max-time 25 "$base""manifest.webmanifest" || echo 000/err)
             icon=$(curl -s -o /dev/null -w '%{http_code}/%{content_type}' --max-time 25 "$base""icons/icon-192.png" || echo 000/err)
-            echo "[$label] manifest   -> $man   icon -> $icon"
-            python3 /tmp/report.py "cdn-$label" "$base html=$hc js=$js sw=$sw man=$man icon=$icon"
+            css=$(curl -s -o /dev/null -w '%{http_code}/%{content_type}' --max-time 25 "$base""css/app.css" || echo 000/err)
+            python3 /tmp/report.py "cdn-$label-js"  "app.js=$js sw=$sw css=$css"
+            python3 /tmp/report.py "cdn-$label-meta" "manifest=$man icon=$icon"
           }
 
-          echo "=============== jsdelivr (sha) ==============="
-          probe jsdelivr-sha "https://cdn.jsdelivr.net/gh/$OWNER/$REPO@$SHA/public/"
-          echo "=============== raw.githack (sha) ==============="
-          probe githack "https://raw.githack.com/$OWNER/$REPO/$SHA/public/"
-          echo "=============== statically.io (sha) ==============="
-          probe statically "https://cdn.statically.io/gh/$OWNER/$REPO/$SHA/public/"
+          UA='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+
+          JS_BASE="https://cdn.jsdelivr.net/gh/$OWNER/$REPO@$SHA/public/"
+          echo "=============== jsdelivr ==============="
+          curl -s -o /tmp/h -w 'html %{http_code}/%{content_type}\n' -A "$UA" --max-time 25 "$JS_BASE"
+          grep -o '<title>[^<]*' /tmp/h || echo "!! no title"
+          grep -c 'installBar' /tmp/h || true
+          probe jsdelivr "$JS_BASE"
+
+          echo "=============== raw.githack ==============="
+          GH_BASE="https://raw.githack.com/$OWNER/$REPO/$SHA/public/"
+          curl -s -o /tmp/h2 -w 'html %{http_code}/%{content_type}\n' -A "$UA" --max-time 25 "$GH_BASE"
+          grep -o '<title>[^<]*' /tmp/h2 || echo "!! no title"
+          probe githack "$GH_BASE"
