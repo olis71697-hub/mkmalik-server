@@ -84,8 +84,25 @@ app.use((req, _res, next) => {
 app.use('/api', apiRouter);
 app.use('/uploads', express.static(config.uploadDir, { maxAge: '7d', immutable: false }));
 
+// The app shell must never be served stale — an old bundle in the browser is
+// indistinguishable from a broken app. HTML/JS/CSS are always revalidated;
+// only hashed-looking uploads get to sit in cache.
+app.use((req, res, next) => {
+  if (/\.(?:html|js|css)$/.test(req.path) || req.path === '/') {
+    res.setHeader('Cache-Control', 'no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+  }
+  next();
+});
+
 const PUBLIC_DIR = path.join(config.root, 'public');
-app.use(express.static(PUBLIC_DIR, { extensions: ['html'], maxAge: config.isProd ? '1h' : 0 }));
+app.use(express.static(PUBLIC_DIR, {
+  extensions: ['html'],
+  maxAge: config.isProd ? '1h' : 0,
+  setHeaders(res, filePath) {
+    if (/\.(?:js|css|html)$/.test(filePath)) res.setHeader('Cache-Control', 'no-store, must-revalidate');
+  },
+}));
 
 // health probe at the root level too (uptime monitors, load balancers)
 app.get('/healthz', (_req, res) => res.json({ ok: true, up: Math.round(process.uptime()) }));

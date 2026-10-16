@@ -126,6 +126,31 @@ router.post('/auth/guest', wrap((_req, res) => {
   res.json({ token: auth.sign(demo), user: publicProfile(demo, demo.id) });
 }));
 
+/**
+ * Instant demo session.
+ *
+ * The showcase account is seeded on first boot; if it is missing (or was
+ * deleted) this recreates it so a fresh deployment always has a way in.
+ * Gated by DEMO_AUTO_LOGIN on the client — see config.demoAutoLogin.
+ */
+router.post('/auth/demo', wrap((_req, res) => {
+  if (!config.demoAutoLogin) {
+    throw forbidden('Demo auto-login is disabled on this deployment — sign in with an account');
+  }
+  let demo = get('SELECT * FROM users WHERE username = ?', 'mkmalik');
+  if (!demo) {
+    const id = uid();
+    run(`INSERT INTO users (id, username, display_name, password_hash, avatar, bio, level, xp,
+                            coins, diamonds, vip, role, is_bot, created_at, last_seen_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      id, 'mkmalik', 'MK Malik', bcrypt.hashSync('demo1234', 10), svgAvatar('MK Malik', 'mkmalik'),
+      'Hosting live rooms every night 🎙️', 42, 5000, 2000, 500, 1, 'admin', 1, Date.now(), Date.now());
+    demo = get('SELECT * FROM users WHERE id = ?', id);
+  }
+  run('UPDATE users SET last_seen_at = ? WHERE id = ?', Date.now(), demo.id);
+  res.json({ token: auth.sign(demo), user: publicProfile(demo, demo.id), demo: true });
+}));
+
 router.get('/me', auth.requireAuth, wrap((req, res) => {
   const u = get('SELECT * FROM users WHERE id = ?', req.user.id);
   res.json({ user: publicProfile(u, u.id), wallet: { coins: u.coins, diamonds: u.diamonds } });
@@ -487,6 +512,7 @@ router.get('/health', wrap((_req, res) => {
     node: process.version,
     memoryMb: Math.round(process.memoryUsage().rss / 1048576),
     startedAt: process.__startedAt || null,
+    demoAutoLogin: config.demoAutoLogin,
   });
 }));
 

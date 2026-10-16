@@ -68,6 +68,7 @@ export const api = {
   // auth
   register: (username, password, displayName) => post('/auth/register', { username, password, displayName }),
   login:    (username, password)              => post('/auth/login', { username, password }),
+  demo:     ()                                => post('/auth/demo'),
   me:       ()                                => get('/me'),
   updateMe: (patchBody)                       => patch('/me', patchBody),
   uploadAvatar: (file) => {

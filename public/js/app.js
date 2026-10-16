@@ -175,25 +175,61 @@ async function boot() {
   const hash = location.hash.replace('#', '');
   if (screens.includes(hash)) go(hash);
 
-  if (!session.token) { showAuth(); return; }
-  await start();
+  if (session.token) { await start(); return; }
+
+  // No saved session. On a demo/showcase deployment we drop the visitor
+  // straight into the seeded account so the app is usable immediately;
+  // otherwise they get the sign-in screen.
+  try {
+    const data = await api.demo();
+    session.set(data.token, data.user);
+    await start();
+    toast('Demo mode — sign out from Profile to use your own account');
+    return;
+  } catch (_) {
+    // demo disabled or unavailable → normal sign-in
+  }
+  showAuth();
+}
+
+// Never leave the user staring at a splash screen. Runs even if boot() itself
+// fails, because it is registered before boot() is invoked below.
+function installBootGuard() {
+  const show = (heading, detail) => {
+    const boot = $('#boot');
+    if (!boot || boot.style.display === 'none') return;
+    boot.innerHTML = '';
+    boot.append(
+      el('div', { class: 'boot-logo', text: '⚠️' }),
+      el('div', { class: 'boot-name', text: heading }),
+      el('div', { class: 'boot-sub', style: { maxWidth: '300px', textAlign: 'center' }, text: detail }),
+      el('button', {
+        class: 'btn btn--primary', style: { marginTop: '18px' },
+        text: 'Retry', onclick: () => location.reload(),
+      }),
+    );
+  };
+  window.addEventListener('error', (e) => show('Could not start', e.message || 'Unknown error'));
+  window.addEventListener('unhandledrejection', (e) => {
+    const msg = e.reason?.message || String(e.reason || 'Unknown error');
+    show('Could not start', msg);
+  });
+  // Hard deadline: if the app has not revealed itself, say so rather than hang.
+  setTimeout(() => {
+    const boot = $('#boot');
+    if (boot && boot.style.display !== 'none') {
+      show('Taking too long', 'The app did not finish loading. Check your connection and retry.');
+    }
+  }, 12_000);
 }
 
 window.__mkmalik = { App, go, toast, api };
 
+// Installed before boot() so a failure inside boot() can still be surfaced.
+installBootGuard();
+
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();
-
-// Safety net: the splash must never be the last thing on screen. If anything
-// in boot() throws, reveal the shell and say what went wrong.
-window.addEventListener('error', (e) => {
-  const boot = document.getElementById('boot');
-  if (boot && boot.style.display !== 'none') {
-    boot.innerHTML = '<div class="boot-logo">⚠️</div><div class="boot-name">Could not start</div>'
-      + `<div class="boot-sub" style="max-width:280px;text-align:center">${(e.message || 'Unknown error')}</div>`
-      + '<button class="btn btn--primary" style="margin-top:16px" onclick="location.reload()">Retry</button>';
-  }
-});
 
 // surface unexpected errors instead of dying silently
 window.addEventListener('unhandledrejection', (e) => {

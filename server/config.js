@@ -83,6 +83,11 @@ const config = {
   corsOrigins: (process.env.CORS_ORIGINS || '*').split(',').map((s) => s.trim()).filter(Boolean),
   trustProxy: bool(process.env.TRUST_PROXY, true),
 
+  // When on, a visitor with no saved session is dropped straight into the demo
+  // account instead of the sign-in screen — so the app is immediately usable
+  // for evaluation. Turn off for a real public deployment.
+  demoAutoLogin: bool(process.env.DEMO_AUTO_LOGIN, process.env.NODE_ENV !== 'production'),
+
   // WebRTC — STUN is always on; TURN relays media when both peers sit behind
   // symmetric NATs. Point these at your own coturn / hosted TURN to make voice
   // work reliably across mobile networks.

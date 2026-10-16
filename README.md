@@ -37,8 +37,15 @@ npm start
 Open <http://localhost:8080>. On first boot the server seeds itself with a cast
 of official rooms so the grid is never empty.
 
-**Demo account** — username `mkmalik`, password `demo1234`.
-Every seeded account uses `demo1234`.
+You land **straight on the Explore grid** — no sign-up needed. Outside
+production a visitor with no saved session is given the demo account
+automatically (`DEMO_AUTO_LOGIN`), so the app is immediately usable. Use
+**Profile → Sign out** to get to the real sign-in screen.
+
+| Account | Password |
+|---|---|
+| `mkmalik` (the demo account) | `demo1234` |
+| every other seeded account | `demo1234` |
 
 ### Talk between two devices
 
@@ -244,6 +251,7 @@ Copy `.env.example` to `.env`. Everything has a working default — highlights:
 | `TURN_SECRET` | — | coturn REST credentials |
 | `ADMIN_TOPUP_TOKEN` | — | Enables coin top-ups |
 | `CORS_ORIGINS` | `*` | Restrict for native clients |
+| `DEMO_AUTO_LOGIN` | on outside production | Auto-enter the demo account for new visitors |
 | `AUTH_ATTEMPTS_PER_MIN` | `12` | Sign-in / sign-up attempts per IP |
 | `ROOMS_PER_HOUR` | `6` | Rooms one account may open per hour |
 
@@ -261,7 +269,7 @@ mocked, the tests talk to the running server exactly as a browser would:
 
 | Suite | What it proves |
 |---|---|
-| `fresh-visit.mjs` | A first-time visitor with no saved session sees the sign-in screen — the boot splash never traps them on a blank page |
+| `fresh-visit.mjs` | A first-time visitor never gets a blank page — they land in the app (demo auto-login) or on a working sign-in screen |
 | `voice-e2e.mjs` | Room creation, seat taking, SDP/ICE relayed both ways, outsiders cannot inject signalling, chat delivery, gifts moving coins server-side, host moderation, empty rooms closing |
 | `peer-topology.mjs` | The audio graph is right at every stage: `sendonly/recvonly` for speaker→listener, `sendrecv` between speakers, no listener↔listener links, and a full 10-seat room refusing an 11th speaker |
 | `presence.mjs` | A backgrounded phone that stops sending heartbeats keeps its mic seat, while a real disconnect frees it instantly |
