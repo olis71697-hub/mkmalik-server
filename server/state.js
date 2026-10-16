@@ -428,7 +428,7 @@ function sweep(liveMembers) {
   return closed;
 }
 
-function roomCount() { return rooms.size; }
+function roomCount() { return liveRooms().length; }
 
 /**
  * Every open room, loading any that only exist in the database (e.g. after a
@@ -475,12 +475,15 @@ function respawnOfficialMembers(room) {
 }
 function getRoom(id) { return rooms.get(id) || null; }
 function stats() {
+  // Load anything that only exists in the database first, otherwise the very
+  // first health check after a restart would report zero live rooms.
+  const open = liveRooms();
   let users = 0, speakers = 0;
-  for (const r of rooms.values()) {
+  for (const r of open) {
     users += r.members.size;
     speakers += r.seats.filter(Boolean).length;
   }
-  return { rooms: rooms.size, users, speakers, seats: rooms.size * SEATS };
+  return { rooms: open.length, users, speakers, seats: open.length * SEATS };
 }
 
 module.exports = {
