@@ -378,8 +378,9 @@ npm start          # in one terminal
 npm test           # in another   (~75s)
 ```
 
-Four suites drive **real Socket.IO clients** through a full session — nothing is
-mocked, the tests talk to the running server exactly as a browser would:
+Six suites run against the real server — nothing is mocked. They drive actual
+Socket.IO clients through full sessions, boot the app in jsdom, and serve it
+from a stand-in static host:
 
 | Suite | What it proves |
 |---|---|
@@ -388,14 +389,16 @@ mocked, the tests talk to the running server exactly as a browser would:
 | `voice-e2e.mjs` | Room creation, seat taking, SDP/ICE relayed both ways, outsiders cannot inject signalling, chat delivery, gifts moving coins server-side, host moderation, empty rooms closing |
 | `peer-topology.mjs` | The audio graph is right at every stage: `sendonly/recvonly` for speaker→listener, `sendrecv` between speakers, no listener↔listener links, and a full 10-seat room refusing an 11th speaker |
 | `presence.mjs` | A backgrounded phone that stops sending heartbeats keeps its mic seat, while a real disconnect frees it instantly |
+| `static-host.mjs` | The app works when it is *not* served by its own backend: a Pages-like host under a sub-path, the full asset and ES-module graph, the manifest and service worker under that prefix, and every workflow file parsing |
 
 ```
 ════ RESULT:  5 passed, 0 failed ════   fresh-visit
-════ RESULT: 25 passed, 0 failed ════   pwa
+════ RESULT: 32 passed, 0 failed ════   pwa
 ════ RESULT: 28 passed, 0 failed ════   voice-e2e
 ════ RESULT: 13 passed, 0 failed ════   peer-topology
 ════ RESULT:  7 passed, 0 failed ════   presence
-✅ all integration tests passed         106 assertions
+════ RESULT: 29 passed, 0 failed ════   static-host
+✅ all integration tests passed         6 suites in 78s
 ```
 
 `SKIP_SLOW=1 npm test` skips the 70-second presence suite.
