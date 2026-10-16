@@ -15,9 +15,11 @@ on:
     paths:
       - 'live.trigger'
   schedule:
-    # GitHub schedules are best-effort and can be late; the job holds for
-    # ~5h50m, so a 6-hourly tick keeps coverage almost continuous.
-    - cron: '5 */6 * * *'
+    # Every five hours. A job holds for about 5h50m, so each scheduled run
+    # takes over from a healthy one rather than waiting for it to die — that
+    # turns a long outage into the couple of minutes it takes to boot and
+    # tunnel. GitHub schedules are best-effort and can run late.
+    - cron: '5 */5 * * *'
   workflow_dispatch:
 
 permissions:

@@ -27,6 +27,37 @@ still free.
 
 ---
 
+## The app is live here
+
+**<https://raw.githack.com/olis71697-hub/mkmalik-server/main/public/index.html>**
+
+Open it on a phone and the app runs full-screen; the install bar offers to put
+it on the home screen, and Android/Chrome shows the real install prompt.
+
+That address is served straight from this repository by raw.githack, so it is
+static and permanent. The live server behind it is **not** on this repository's
+host — it runs in the `live public app` workflow, which boots the real Node
+server, opens a Cloudflare tunnel, proves the app answers through the public
+hostname, and publishes the address into `backend.json`. The app reads
+`backend.json`, finds the backend wherever it is, and talks to it
+cross-origin. The backend address therefore changes as the workflow renews;
+the app's address never does.
+
+The moving parts, briefly:
+
+| piece | what it does |
+| --- | --- |
+| `public/` | the whole app, plain static files |
+| `backend.json` | where the live server currently is |
+| `live public app` | runs the real server + public tunnel, renews itself |
+| `verify the public app` | fetches the published app as a browser would, walks the module graph, then checks REST and socket.io CORS from the app's origin |
+| `deploy static app to GitHub Pages` | publishes the same files to Pages — it needs *Settings → Pages → Source: GitHub Actions* once, which only a repository owner can do |
+| `probe static hosts` | which hosts actually serve the app as a page rather than as `text/plain` |
+
+If you would rather have a permanent backend at a fixed address, deploy this
+repository to Render with the button below and put that address in
+`backend.json`; everything else keeps working unchanged.
+
 ## Put it online — get a link you can share
 
 A preview URL inside the sandbox only works while that session is alive. For a
@@ -364,7 +395,7 @@ mocked, the tests talk to the running server exactly as a browser would:
 ════ RESULT: 28 passed, 0 failed ════   voice-e2e
 ════ RESULT: 13 passed, 0 failed ════   peer-topology
 ════ RESULT:  7 passed, 0 failed ════   presence
-✅ all integration tests passed         78 assertions
+✅ all integration tests passed         106 assertions
 ```
 
 `SKIP_SLOW=1 npm test` skips the 70-second presence suite.
