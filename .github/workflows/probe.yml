@@ -5,9 +5,6 @@ name: probe static hosts
 # not an app, so the content type matters as much as the status code.
 
 on:
-  push:
-    paths:
-      - 'probe.trigger'
   workflow_dispatch:
 
 permissions:
