@@ -24,12 +24,13 @@ jobs:
           sleep 2
           curl -sf http://127.0.0.1:9911/
 
-      - name: report helper
+      - name: browser-shaped visit to a fixed localtunnel subdomain
+        env:
+          R: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          T: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cat > /tmp/report.sh <<'SH'
-          #!/usr/bin/env bash
-          # report_context <context> <description>
-          python3 - "$1" "$2" <<'PY'
+          cat > /tmp/report.py <<'PY'
           import json, os, sys, urllib.request
           ctx, desc = sys.argv[1], sys.argv[2][:140]
           body = json.dumps({"state": "success", "context": ctx, "description": desc}).encode()
@@ -42,61 +43,60 @@ jobs:
           print(ctx, "->", desc)
           urllib.request.urlopen(req).read()
           PY
-          SH
-          chmod +x /tmp/report.sh
 
-      - name: serveo.net
+          npx --yes localtunnel --port 9911 --subdomain mkmalik-live > /tmp/lt.log 2>&1 &
+          URL=""
+          for i in $(seq 1 20); do
+            URL=$(grep -oE 'https://[a-z0-9.-]+\.loca\.lt' /tmp/lt.log 2>/dev/null | head -1 || true)
+            [ -n "$URL" ] && break
+            sleep 2
+          done
+          echo "--- localtunnel log ---"; cat /tmp/lt.log
+          if [ -z "$URL" ]; then python3 /tmp/report.py probe-lt "FAIL $(tail -c 100 /tmp/lt.log | tr '\n' ' ')"; exit 0; fi
+          echo "URL=$URL"
+          sleep 8
+
+          UA='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+          CODE=$(curl -s -o /tmp/browser.html -w '%{http_code}' -A "$UA" \
+                 -H 'Accept: text/html,application/xhtml+xml' --max-time 25 "$URL/" || echo 000)
+          echo "browser-shaped GET / -> $CODE, $(wc -c < /tmp/browser.html) bytes"
+          head -c 500 /tmp/browser.html; echo
+
+          if grep -qiE 'tunnel reminder|click to continue|tunnel password|bypass-tunnel' /tmp/browser.html; then
+            VERDICT="interstitial"
+          elif grep -q 'MK-MALIK-PROBE-OK' /tmp/browser.html; then
+            VERDICT="clean-for-browsers"
+          else
+            VERDICT="unknown"
+          fi
+
+          BYPASS=$(curl -s -o /tmp/bypass.txt -w '%{http_code}' -A "$UA" \
+                   -H 'bypass-tunnel-reminder: 1' --max-time 25 "$URL/" || echo 000)
+
+          echo "verdict=$VERDICT code=$CODE bypass=$BYPASS"
+          python3 /tmp/report.py probe-lt "$URL $VERDICT code=$CODE bypass=$BYPASS"
+
+      - name: cloudflared quick tunnel · browser test
         env:
           R: ${{ github.repository }}
           SHA: ${{ github.sha }}
           T: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/id_ed25519 <<< y >/dev/null 2>&1 || true
-          timeout 55 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o ServerAliveInterval=20 -N -R mkmalik-probe:80:127.0.0.1:9911 serveo.net \
-            > /tmp/serveo.log 2>&1 &
-          sleep 35
-          echo "--- serveo log ---"; cat /tmp/serveo.log
-          URL=$(grep -oE 'https://[a-z0-9.-]+\.serveo\.net' /tmp/serveo.log | head -1 || true)
-          if [ -n "$URL" ]; then
-            CODE=$(curl -s -o /tmp/s.txt -w '%{http_code}' --max-time 20 "$URL/" || echo 000)
-            /tmp/report.sh probe-serveo "$URL [$CODE] $(head -c 20 /tmp/s.txt)"
-          else
-            /tmp/report.sh probe-serveo "FAIL $(tail -c 90 /tmp/serveo.log | tr '\n' ' ')"
-          fi
-
-      - name: localhost.run
-        env:
-          R: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-          T: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          timeout 50 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o ServerAliveInterval=20 -N -R 80:127.0.0.1:9911 localhost.run \
-            > /tmp/lhr.log 2>&1 &
-          sleep 32
-          echo "--- lhr log ---"; cat /tmp/lhr.log
-          URL=$(grep -oE 'https://[a-z0-9.-]+\.lhr\.life' /tmp/lhr.log | head -1 || true)
-          if [ -n "$URL" ]; then
-            CODE=$(curl -s -o /tmp/l.txt -w '%{http_code}' --max-time 20 "$URL/" || echo 000)
-            /tmp/report.sh probe-lhr "$URL [$CODE] $(head -c 20 /tmp/l.txt)"
-          else
-            /tmp/report.sh probe-lhr "FAIL $(tail -c 90 /tmp/lhr.log | tr '\n' ' ')"
-          fi
-
-      - name: localtunnel named subdomain
-        env:
-          R: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-          T: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          npx --yes localtunnel --port 9911 --subdomain mk-malik-probe > /tmp/lt.log 2>&1 &
-          sleep 25
-          echo "--- lt log ---"; cat /tmp/lt.log
-          URL=$(grep -oE 'https://[a-z0-9.-]+\.loca\.lt' /tmp/lt.log | head -1 || true)
-          if [ -n "$URL" ]; then
-            CODE=$(curl -s -o /tmp/t.txt -w '%{http_code}' --max-time 20 "$URL/" || echo 000)
-            /tmp/report.sh probe-lt "$URL [$CODE] $(head -c 20 /tmp/t.txt)"
-          else
-            /tmp/report.sh probe-lt "FAIL $(tail -c 90 /tmp/lt.log | tr '\n' ' ')"
-          fi
+          curl -sSL --retry 3 --max-time 120 -o /tmp/cloudflared \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x /tmp/cloudflared
+          nohup /tmp/cloudflared tunnel --url http://127.0.0.1:9911 --no-autoupdate > /tmp/cf.log 2>&1 &
+          URL=""
+          for i in $(seq 1 30); do
+            URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cf.log 2>/dev/null | head -1 || true)
+            [ -n "$URL" ] && break
+            sleep 2
+          done
+          if [ -z "$URL" ]; then python3 /tmp/report.py probe-cf "FAIL $(tail -c 100 /tmp/cf.log | tr '\n' ' ')"; exit 0; fi
+          sleep 6
+          UA='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+          CODE=$(curl -s -o /tmp/cf.html -w '%{http_code}' -A "$UA" --max-time 25 "$URL/" || echo 000)
+          echo "browser-shaped GET / -> $CODE, $(wc -c < /tmp/cf.html) bytes"
+          head -c 300 /tmp/cf.html; echo
+          if grep -q 'MK-MALIK-PROBE-OK' /tmp/cf.html; then V="clean-for-browsers"; else V="check"; fi
+          python3 /tmp/report.py probe-cf "$URL $V code=$CODE"
