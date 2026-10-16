@@ -123,8 +123,8 @@ jobs:
         env:
           T: ${{ secrets.GITHUB_TOKEN }}
           R: ${{ github.repository }}
-          # fixed, so scheduled runs on the default branch still advertise
-          # the address where the installed app looks for it
+          # fixed, so scheduled runs on the default branch still advertise the
+          # address where the installed app looks for it
           BRANCH: arena/bdc831c9-mkmalik-server
         run: |
           URL=$(cat /tmp/url.txt)
@@ -132,29 +132,50 @@ jobs:
           # backend.json is read (cross-origin) by the app wherever it is
           # installed from, so it always knows where the live server is.
           python3 - "$URL" <<'PY'
-          import json, os, sys
+          import json, sys, datetime
           url = sys.argv[1].rstrip('/')
           doc = {
               "backend": url,
-              "updated": __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+              "updated": datetime.datetime.now(datetime.timezone.utc)
                           .replace(microsecond=0).isoformat(),
           }
           open('/tmp/backend.json', 'w').write(json.dumps(doc, indent=2) + "\n")
           print(json.dumps(doc))
           PY
 
-          cp /tmp/backend.json backend.json
-          git config user.email "actions@github.com"
-          git config user.name "live app"
-          for attempt in 1 2 3; do
-            git fetch -q origin "$BRANCH" || true
-            git reset -q --soft "origin/$BRANCH" 2>/dev/null || true
-            git add backend.json
-            if git diff --cached --quiet; then echo "backend.json unchanged"; break; fi
-            git commit -q -m "live: advertise the current backend address"
-            if git push -q origin "HEAD:$BRANCH"; then echo "published backend.json"; break; fi
-            echo "push attempt $attempt lost a race, retrying"; sleep 5
-          done
+          # Written through the contents API on purpose. Committing with git
+          # here once rewound the branch to the checked-out commit and deleted
+          # files that landed meanwhile; the API only ever touches this one
+          # file, and takes the current sha so a racing update is a clean
+          # conflict instead of a silent revert.
+          python3 - <<'PY'
+          import base64, json, os, urllib.request, urllib.error
+
+          repo, branch, token = os.environ['R'], os.environ['BRANCH'], os.environ['T']
+          api = f"https://api.github.com/repos/{repo}/contents/backend.json"
+          hdrs = {"Authorization": f"Bearer {token}",
+                  "Accept": "application/vnd.github+json"}
+
+          sha = ""
+          try:
+              req = urllib.request.Request(f"{api}?ref={branch}", headers=hdrs)
+              sha = json.load(urllib.request.urlopen(req)).get("sha", "")
+          except urllib.error.HTTPError as err:
+              if err.code != 404:
+                  raise
+
+          body = {
+              "message": "live: advertise the current backend address",
+              "content": base64.b64encode(open('/tmp/backend.json', 'rb').read()).decode(),
+              "branch": branch,
+          }
+          if sha:
+              body["sha"] = sha
+          req = urllib.request.Request(api, data=json.dumps(body).encode(), method='PUT',
+                                       headers={**hdrs, "Content-Type": "application/json"})
+          info = json.load(urllib.request.urlopen(req))
+          print("published", info["content"]["path"], "at", info["commit"]["sha"][:8])
+          PY
 
       - name: publish the address as a commit status
         if: success()

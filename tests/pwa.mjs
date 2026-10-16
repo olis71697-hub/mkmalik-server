@@ -32,6 +32,12 @@ check('display is standalone', man.display === 'standalone', man.display);
 // relative on purpose: the app is also published under a sub-path
 check('start_url is relative so a sub-path deploy works',
   man.start_url?.startsWith('./') && man.scope === './', `${man.start_url} scope ${man.scope}`);
+// a file CDN answers a bare directory with its own listing, so name the file
+check('start_url names index.html so a file host works too',
+  /index\.html/.test(man.start_url || ''), man.start_url);
+check('shortcuts stay inside the app',
+  (man.shortcuts || []).every((s) => s.url.startsWith('./index.html')),
+  (man.shortcuts || []).map((s) => s.url).join(', '));
 check('manifest icons are relative', man.icons?.every((i) => !i.src.startsWith('/')),
   (man.icons || []).map((i) => i.src).join(', '));
 check('theme_color matches the design', man.theme_color === '#ff5a1f', man.theme_color);

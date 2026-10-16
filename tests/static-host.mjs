@@ -212,6 +212,46 @@ try {
   }
   r.check('every asset the app needs is tracked by git', untracked.length === 0,
     untracked.join(', ') || `${new Set(mustBeTracked).size} files tracked`);
+
+  // A workflow with a YAML indentation slip still shows up in the Actions UI —
+  // as an immediate failure named after the file. Parse them here instead.
+  const workflowDir = path.join(repoRoot, '.github', 'workflows');
+  const files = fs.existsSync(workflowDir) ? fs.readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f)) : [];
+  let YAML = null;
+  try { YAML = (await import('yaml')).default; } catch (_) {}
+  if (!YAML) {
+    r.check('workflow yaml files parse', false, 'the yaml dev dependency is missing — run npm install');
+  } else {
+    const bad = [];
+    for (const f of files) {
+      try {
+        const doc = YAML.parse(fs.readFileSync(path.join(workflowDir, f), 'utf8'));
+        if (!doc || !doc.name) throw new Error('no name');
+        if (!doc.jobs || !Object.keys(doc.jobs).length) throw new Error('no jobs');
+      } catch (err) {
+        bad.push(`${f}: ${String(err.message).split('\n')[0]}`);
+      }
+    }
+    r.check(`all ${files.length} workflow files are valid and named`, bad.length === 0,
+      bad.join(' | ') || files.join(', '));
+
+    const pages = files.find((f) => /pages/.test(f));
+    r.check('there is a workflow that publishes the app', !!pages, pages || 'none');
+
+    // The live workflow once committed with git and rewound the branch to its
+    // own checkout, deleting files that had landed in the meantime. It may
+    // only ever touch backend.json, through the contents API.
+    const livePath = path.join(workflowDir, 'live.yml');
+    if (fs.existsSync(livePath)) {
+      const live = fs.readFileSync(livePath, 'utf8');
+      r.check('the live workflow publishes through the contents API',
+        live.includes('contents/backend.json'));
+      r.check('the live workflow never commits with git',
+        !/git\s+commit/.test(live), /git\s+commit/.test(live) ? 'found a git commit' : 'clean');
+      r.check('no workflow rewinds the branch with git reset',
+        !/reset\s+[^\n]*--soft/.test(live));
+    }
+  }
 } finally {
   server.close();
 }
