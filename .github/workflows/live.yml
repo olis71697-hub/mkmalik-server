@@ -113,7 +113,7 @@ jobs:
           fi
 
           echo "health:   $(curl -s --max-time 20 "$URL/api/health")"
-          echo "manifest: $(curl -s -o /dev/null -w '%{http_code} %{content_type}' --max-time 20 "$URL/manifest.webmanifest")"
+          echo "manifest: $(curl -s -o /dev/null -w '%{http_code} %{content_type}' --max-time 20 "$URL/manifest.json")"
           echo "sw.js:    $(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$URL/sw.js")"
           echo "app.js:   $(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$URL/js/app.js")"
           echo "icon:     $(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$URL/icons/icon-512.png")"

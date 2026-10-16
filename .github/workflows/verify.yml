@@ -70,7 +70,7 @@ jobs:
           echo "── assets a browser needs ──"
           JS=$(curl -sL -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/js/app.js" || echo 000/err)
           SW=$(curl -sL -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/sw.js" || echo 000/err)
-          MAN=$(curl -sL -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/manifest.webmanifest" || echo 000/err)
+          MAN=$(curl -sL -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/manifest.json" || echo 000/err)
           ICON=$(curl -sL -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/icons/icon-192.png" || echo 000/err)
           ICON512=$(curl -sL -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/icons/icon-512.png" || echo 000/err)
           CSS=$(curl -sL -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/css/app.css" || echo 000/err)

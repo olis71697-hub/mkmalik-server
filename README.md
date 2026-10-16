@@ -394,7 +394,7 @@ server/
   seed.js          demo cast, gift catalog, official rooms
 public/
   index.html       app shell
-  manifest.webmanifest  PWA install metadata
+  manifest.json         PWA install metadata
   sw.js            service worker (shell only — never caches live data)
   icons/           generated PNG app icons
   css/app.css      the whole design system

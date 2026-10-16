@@ -52,6 +52,14 @@ jobs:
             python3 /tmp/report.py "host-$label" "$code $ct $served ${title:-}"
           }
 
+          # the manifest must come back with a JSON type or the phone ignores it
+          for u in "manifest.json" "sw.js" "css/app.css" "icons/icon-192.png" "js/runtime.js"; do
+            OUT=$(curl -sL -o /dev/null -w '%{http_code}|%{content_type}' --max-time 30 \
+                  "https://raw.githack.com/olis71697-hub/mkmalik-server/arena/bdc831c9-mkmalik-server/public/$u" || echo '000|err')
+            echo "[githack-branch] $u -> $OUT"
+            python3 /tmp/report.py "mime-$u" "$OUT"
+          done
+
           check jsdelivr   "https://cdn.jsdelivr.net/gh/olis71697-hub/mkmalik-server@main/public/index.html"
           check githack    "https://raw.githack.com/olis71697-hub/mkmalik-server/main/public/index.html"
           check rawcdn     "https://rawcdn.githack.com/olis71697-hub/mkmalik-server/main/public/index.html"

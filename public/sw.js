@@ -12,7 +12,7 @@ const SHELL = `${VERSION}-shell`;
 const ASSETS = `${VERSION}-assets`;
 
 // relative, so the app works at a domain root and under a sub-path
-const SHELL_FILES = ['./', './index.html', './css/app.css', './manifest.webmanifest'];
+const SHELL_FILES = ['./', './index.html', './css/app.css', './manifest.json'];
 const ASSET_FILES = [
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -71,7 +71,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Icons and the manifest: cache first, they rarely change.
-  if (/\.(?:png|webmanifest|ico)$/.test(url.pathname)) {
+  if (/\.(?:png|json|webmanifest|ico)$/.test(url.pathname)) {
     event.respondWith((async () => {
       const cached = await caches.match(request);
       if (cached) return cached;

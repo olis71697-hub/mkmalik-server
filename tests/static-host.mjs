@@ -27,7 +27,8 @@ const r = makeReporter('static host · sub-path deployment');
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.png': 'image/png',
-  '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml',
+  '.json': 'application/manifest+json', '.webmanifest': 'application/manifest+json',
+  '.svg': 'image/svg+xml',
 };
 
 // ── a stand-in for GitHub Pages ────────────────────────────────────────────
@@ -79,7 +80,7 @@ try {
   const refs = [...html.matchAll(/(?:href|src)="([^"]+)"/g)].map((m) => m[1]);
   const absolute = refs.filter((u) => u.startsWith('/') || /^https?:/.test(u));
   r.check('index.html has no absolute paths', absolute.length === 0, absolute.join(', ') || 'none');
-  r.check('references the manifest relatively', refs.includes('manifest.webmanifest'));
+  r.check('references the manifest relatively', refs.includes('manifest.json'));
 
   // ── 3. every referenced asset resolves ───────────────────────────────────
   r.section('every referenced asset resolves');
@@ -126,7 +127,7 @@ try {
 
   // ── 5. manifest survives the sub-path ────────────────────────────────────
   r.section('web app manifest');
-  const man = await (await get(ROOT + 'manifest.webmanifest')).json();
+  const man = await (await get(ROOT + 'manifest.json')).json();
   r.check('start_url stays inside the app', !man.start_url.startsWith('/'), `start_url="${man.start_url}"`);
   r.check('scope stays inside the app', man.scope === './' || !man.scope.startsWith('/'), `scope="${man.scope}"`);
   const startAbs = new URL(man.start_url, ROOT).href;
@@ -193,7 +194,7 @@ try {
   const repoRoot = path.join(here, '..');
   const mustBeTracked = [
     ...assetHops,
-    'manifest.webmanifest',
+    'manifest.json',
     'icons/icon-192.png',
     'icons/icon-512.png',
     'icons/icon-maskable-512.png',

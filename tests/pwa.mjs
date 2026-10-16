@@ -23,10 +23,14 @@ const check = (name, ok, extra = '') => {
 console.log('\n════ PWA / INSTALLABLE ════\n');
 
 // ── manifest ───────────────────────────────────────────────────────────────
-const manRes = await fetch(BASE + '/manifest.webmanifest');
+const manRes = await fetch(BASE + '/manifest.json');
 const man = await manRes.json();
-check('manifest is served as manifest+json',
-  /manifest\+json/.test(manRes.headers.get('content-type') || ''), manRes.headers.get('content-type'));
+// Chrome accepts application/manifest+json or application/json and ignores
+// anything else — which is how a perfectly good manifest quietly stops the
+// install prompt from ever appearing.
+const manType = (manRes.headers.get('content-type') || '').toLowerCase();
+check('manifest is served with a JSON content type',
+  manType.includes('manifest+json') || manType.includes('application/json'), manType);
 check('has name and short_name', !!man.name && !!man.short_name, `${man.short_name}`);
 check('display is standalone', man.display === 'standalone', man.display);
 // relative on purpose: the app is also published under a sub-path
@@ -75,7 +79,7 @@ check('service worker cleans up old versions', swText.includes('caches.keys()') 
 
 // ── head tags ──────────────────────────────────────────────────────────────
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-check('links the manifest', /rel="manifest"\s+href="manifest\.webmanifest"/.test(html));
+check('links the manifest', /rel="manifest"\s+href="manifest\.json"/.test(html));
 check('index.html has no absolute asset paths', !/(?:href|src)="\//.test(html));
 check('has an apple-touch-icon for iOS', /rel="apple-touch-icon"/.test(html));
 check('declares apple-mobile-web-app-capable', /apple-mobile-web-app-capable"\s+content="yes"/.test(html));
