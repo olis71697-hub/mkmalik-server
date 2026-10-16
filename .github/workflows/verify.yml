@@ -1,11 +1,15 @@
 name: verify the public app
 
-# Answers one question, from a machine that is not the sandbox and not your
-# phone: does the published app actually load, and can it reach a live backend?
+# Answers one question, from a machine that is neither the sandbox nor a phone:
+# does the published app load, and can it reach a live backend across origins?
 #
-#   • purges the CDN so the newest build is served
-#   • fetches the published app exactly as a browser would
-#   • reads backend.json, then health-checks that backend
+#   • fetches the published app exactly as a browser would, and checks the
+#     response really is html (a host that returns text/plain shows the visitor
+#     source code instead of an app)
+#   • walks the whole ES module graph — one missing file breaks everything
+#   • reads backend.json and health-checks the backend it advertises
+#   • checks the cross-origin headers the app needs: REST and the socket.io
+#     handshake, from the host the app is served from
 #
 # Results are published as commit statuses, so they can be read back without
 # digging through logs.
@@ -45,68 +49,90 @@ jobs:
           urllib.request.urlopen(req).read()
           PY
 
-          APP='https://cdn.jsdelivr.net/gh/olis71697-hub/mkmalik-server@main/public'
-          ENTRY="$APP/index.html"   # a file host answers the bare directory with its own listing
+          # An app in a webmanifest is not installable without its icon, and a manifest
+          # with a bad MIME type is ignored, so these are checked one by one.
+          APP='https://raw.githack.com/olis71697-hub/mkmalik-server/main/public'
+          ENTRY="$APP/index.html"
+          HOST='https://raw.githack.com'
           HINT='https://raw.githubusercontent.com/olis71697-hub/mkmalik-server/arena/bdc831c9-mkmalik-server/backend.json'
           UA='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
 
-          echo "── purge the cdn so the newest build is served ──"
-          for p in "" "index.html" "js/app.js" "js/runtime.js" "js/local.js" "sw.js" "manifest.webmanifest" "css/app.css" "icons/icon-192.png" "icons/icon-512.png" "icons/icon-maskable-512.png"; do
-            curl -s -o /dev/null -w "purge $p -> %{http_code}\n" --max-time 20 "https://purge.jsdelivr.net/gh/olis71697-hub/mkmalik-server@main/public/$p" || true
-          done
-
-          echo
-          echo "── the published app ──"
-          HTML=$(curl -s -A "$UA" -o /tmp/page.html -w '%{http_code}/%{content_type}' --max-time 30 "$ENTRY" || echo 000/err)
-          echo "GET $ENTRY  ->  $HTML"
+          echo "── the published page ──"
+          OUT=$(curl -sSL -A "$UA" -o /tmp/page.html -w '%{http_code}|%{content_type}' --max-time 40 "$ENTRY" || echo '000|err')
+          echo "GET $ENTRY  ->  $OUT"
           TITLE=$(grep -oE '<title>[^<]*' /tmp/page.html | head -1 || true)
           echo "title: $TITLE"
-          if grep -q 'MK Malik' /tmp/page.html; then SERVED="app-html"; else SERVED="NOT-the-app"; fi
-          echo "served: $SERVED"
+          if grep -q 'MK Malik' /tmp/page.html; then SERVED='serves-the-app'; else SERVED='NOT-the-app'; fi
+          if echo "$OUT" | grep -q 'text/html'; then CT='html-mime-ok'; else CT='WRONG-MIME'; fi
+          echo "$SERVED $CT"
 
-          # a single 404 anywhere in the module graph breaks the whole app
-          MISSING=""
+          echo
+          echo "── assets a browser needs ──"
+          JS=$(curl -sL -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/js/app.js" || echo 000/err)
+          SW=$(curl -sL -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/sw.js" || echo 000/err)
+          MAN=$(curl -sL -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/manifest.webmanifest" || echo 000/err)
+          ICON=$(curl -sL -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/icons/icon-192.png" || echo 000/err)
+          ICON512=$(curl -sL -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/icons/icon-512.png" || echo 000/err)
+          CSS=$(curl -sL -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/css/app.css" || echo 000/err)
+          echo "app.js   $JS"
+          echo "sw.js    $SW"
+          echo "manifest $MAN"
+          echo "icon     $ICON"
+          echo "icon512  $ICON512"
+          echo "css      $CSS"
+
+          echo
+          echo "── module graph ──"
+          MISSING=''
           for f in js/app.js js/util.js js/api.js js/runtime.js js/local.js js/rtc.js \
                    js/screens/auth.js js/screens/chat.js js/screens/explore.js \
                    js/screens/moments.js js/screens/profile.js js/screens/room.js; do
-            C=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$APP/$f" || echo 000)
+            C=$(curl -sL -o /dev/null -w '%{http_code}' --max-time 20 "$APP/$f" || echo 000)
             [ "$C" = "200" ] || MISSING="$MISSING $f:$C"
           done
-          if [ -z "$MISSING" ]; then MODULES="modules=12/12"; else MODULES="modules-MISSING:$MISSING"; fi
-          echo "$MODULES"
+          if [ -z "$MISSING" ]; then MODULES='12/12'; else MODULES="MISSING:$MISSING"; fi
+          echo "modules $MODULES"
 
-          JS=$(curl -s -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/js/app.js" || echo 000/err)
-          SW=$(curl -s -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/sw.js" || echo 000/err)
-          MAN=$(curl -s -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/manifest.webmanifest" || echo 000/err)
-          ICON=$(curl -s -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/icons/icon-192.png" || echo 000/err)
-          CSS=$(curl -s -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/css/app.css" || echo 000/err)
-          echo "app.js      $JS"
-          echo "sw.js       $SW"
-          echo "manifest    $MAN"
-          echo "icon        $ICON"
-          echo "css         $CSS"
-
-          # does the served app actually contain the backend-discovery code?
-          RUNTIME=$(curl -s --max-time 30 "$APP/js/runtime.js" || echo '')
-          if echo "$RUNTIME" | grep -q 'BACKEND_HINT_URLS'; then DISC="discovery=yes"; else DISC="discovery=NO"; fi
+          # does the published build actually carry the discovery code?
+          RUNTIME=$(curl -sL --max-time 30 "$APP/js/runtime.js" || echo '')
+          if echo "$RUNTIME" | grep -q 'BACKEND_HINT_URLS'; then DISC='discovery-published'; else DISC='discovery-NOT-published'; fi
           echo "$DISC"
 
-          python3 /tmp/report.py public-app-html "$HTML $SERVED ${TITLE:-no-title}"
-          python3 /tmp/report.py public-app-assets "js=$JS sw=$SW man=$MAN icon=$ICON css=$CSS $DISC $MODULES"
+          python3 /tmp/report.py public-app "$OUT $SERVED $CT ${TITLE:-}"
+          python3 /tmp/report.py public-assets "js=$JS sw=$SW man=$MAN icon=$ICON i512=$ICON512 css=$CSS $MODULES $DISC"
 
           echo
           echo "── the advertised backend ──"
           HINTTXT=$(curl -s --max-time 30 "$HINT" || true)
           echo "backend.json: $HINTTXT"
-          BACKEND=$(printf '%s' "$HINTTXT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("backend",""))' 2>/dev/null || echo '')
+          BACKEND=$(printf '%s' "$HINTTXT" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("backend",""))' 2>/dev/null || echo '')
           echo "backend: ${BACKEND:-none}"
 
-          if [ -n "$BACKEND" ]; then
-            HC=$(curl -s -o /tmp/health.json -w '%{http_code}' --max-time 30 "$BACKEND/api/health" || echo 000)
-            echo "health -> $HC  $(head -c 160 /tmp/health.json)"
-            ROOMS=$(curl -s --max-time 30 "$BACKEND/api/rooms" | head -c 200)
-            echo "rooms  -> $ROOMS"
-            python3 /tmp/report.py live-backend "health=$HC $(head -c 90 /tmp/health.json)"
+          if [ -z "$BACKEND" ]; then
+            python3 /tmp/report.py live-backend "nothing advertised yet"
           else
-            python3 /tmp/report.py live-backend "no backend advertised yet"
+            HEALTH=$(curl -s -o /tmp/health.json -w '%{http_code}' --max-time 30 "$BACKEND/api/health" || echo 000)
+            echo "health  -> $HEALTH $(head -c 150 /tmp/health.json)"
+            ROOMS=$(curl -s --max-time 30 "$BACKEND/api/rooms" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d.get("rooms",[])),"rooms")' 2>/dev/null || echo '? rooms')
+            echo "rooms   -> $ROOMS"
+
+            # the app is served from another origin, so every request is a CORS
+            # request: without these headers nothing reaches the backend
+            REST_CORS=$(curl -s -o /dev/null -D - -H "Origin: $HOST" --max-time 30 "$BACKEND/api/health" \
+                        | grep -i '^access-control-allow-origin' | tr -d '\r' | cut -d' ' -f2- || echo none)
+            IO_CODE=$(curl -s -o /tmp/io.txt -w '%{http_code}' -H "Origin: $HOST" --max-time 30 \
+                      "$BACKEND/socket.io/?EIO=4&transport=polling" || echo 000)
+            IO_CORS=$(curl -s -o /dev/null -D - -H "Origin: $HOST" --max-time 30 \
+                      "$BACKEND/socket.io/?EIO=4&transport=polling" \
+                      | grep -i '^access-control-allow-origin' | tr -d '\r' | cut -d' ' -f2- || echo none)
+            echo "rest cors    -> ${REST_CORS:-none}"
+            echo "socket.io    -> $IO_CODE cors=${IO_CORS:-none}  $(head -c 60 /tmp/io.txt)"
+
+            if [ "$HEALTH" = "200" ] && [ -n "$REST_CORS" ] && [ "$REST_CORS" != "none" ] \
+               && [ "$IO_CODE" = "200" ] && [ -n "$IO_CORS" ] && [ "$IO_CORS" != "none" ]; then
+              VERDICT='cross-origin-ok'
+            else
+              VERDICT='CROSS-ORIGIN-BROKEN'
+            fi
+            python3 /tmp/report.py live-backend "$VERDICT health=$HEALTH $ROOMS rest-cors=${REST_CORS:-none} io=$IO_CODE"
           fi
