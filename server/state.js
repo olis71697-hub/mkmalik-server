@@ -384,8 +384,15 @@ function closeRoom(roomId, reason = 'closed') {
   return room;
 }
 
-/** Periodic sweeper: drop ghosts, keep official rooms stocked, close empty ones. */
-function sweep() {
+/**
+ * Periodic sweeper: drop ghosts, keep official rooms stocked, close empty ones.
+ *
+ * `liveMembers`, when provided, is a Set of "roomId:userId" strings for people
+ * whose socket is still connected. Those are never treated as ghosts — a
+ * backgrounded phone throttles (or suspends) its timers, so heartbeats alone
+ * are not proof that somebody has left.
+ */
+function sweep(liveMembers) {
   const t = Date.now();
   const closed = [];
   for (const room of rooms.values()) {
@@ -393,6 +400,8 @@ function sweep() {
 
     for (const m of [...room.members.values()]) {
       if (t - m.lastSeen <= GUEST_TTL_MS) continue;
+      // a connected socket is the strongest signal of presence
+      if (liveMembers && liveMembers.has(`${room.id}:${m.userId}`)) { m.lastSeen = t; continue; }
       // official rooms keep their resident hosts on the mic
       if (official && m.user?.is_bot) { m.lastSeen = t; continue; }
       if (m.seat !== null) room.seats[m.seat] = null;

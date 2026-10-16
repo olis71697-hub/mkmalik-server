@@ -34,11 +34,24 @@ if (!await reachable(BASE)) {
   process.exit(1);
 }
 
+// presence.mjs deliberately idles past the ghost timeout, so it takes ~70s
+const SUITES = [
+  'fresh-visit.mjs',
+  'voice-e2e.mjs',
+  'peer-topology.mjs',
+  'presence.mjs',
+];
+if (process.env.SKIP_SLOW === '1') {
+  SUITES.splice(SUITES.indexOf('presence.mjs'), 1);
+}
+
 let failed = 0;
-for (const file of ['voice-e2e.mjs', 'peer-topology.mjs']) {
+const started = Date.now();
+for (const file of SUITES) {
   console.log(`\n──────── ${file} ────────`);
   failed += await run(file) === 0 ? 0 : 1;
 }
+console.log(`\nRan ${SUITES.length} suite(s) in ${Math.round((Date.now() - started) / 1000)}s`);
 
 if (failed) { console.error(`\n❌ ${failed} test file(s) failed\n`); process.exit(1); }
 console.log('\n✅ all integration tests passed\n');

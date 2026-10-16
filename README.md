@@ -244,6 +244,8 @@ Copy `.env.example` to `.env`. Everything has a working default — highlights:
 | `TURN_SECRET` | — | coturn REST credentials |
 | `ADMIN_TOPUP_TOKEN` | — | Enables coin top-ups |
 | `CORS_ORIGINS` | `*` | Restrict for native clients |
+| `AUTH_ATTEMPTS_PER_MIN` | `12` | Sign-in / sign-up attempts per IP |
+| `ROOMS_PER_HOUR` | `6` | Rooms one account may open per hour |
 
 ---
 
@@ -251,16 +253,34 @@ Copy `.env.example` to `.env`. Everything has a working default — highlights:
 
 ```bash
 npm start          # in one terminal
-npm test           # in another
+npm test           # in another   (~75s)
 ```
 
-The suite drives **two real Socket.IO clients** through a full session: creating
-a room, taking seats, verifying the peer topology at every stage, relaying
-SDP/ICE both ways, confirming outsiders cannot inject signalling, sending chat,
-moving coins with a gift, and checking the room closes when it empties.
+Four suites drive **real Socket.IO clients** through a full session — nothing is
+mocked, the tests talk to the running server exactly as a browser would:
+
+| Suite | What it proves |
+|---|---|
+| `fresh-visit.mjs` | A first-time visitor with no saved session sees the sign-in screen — the boot splash never traps them on a blank page |
+| `voice-e2e.mjs` | Room creation, seat taking, SDP/ICE relayed both ways, outsiders cannot inject signalling, chat delivery, gifts moving coins server-side, host moderation, empty rooms closing |
+| `peer-topology.mjs` | The audio graph is right at every stage: `sendonly/recvonly` for speaker→listener, `sendrecv` between speakers, no listener↔listener links, and a full 10-seat room refusing an 11th speaker |
+| `presence.mjs` | A backgrounded phone that stops sending heartbeats keeps its mic seat, while a real disconnect frees it instantly |
 
 ```
 ════ RESULT: 28 passed, 0 failed ════
+════ RESULT: 13 passed, 0 failed ════
+════ RESULT:  7 passed, 0 failed ════
+✅ all integration tests passed
+```
+
+`SKIP_SLOW=1 npm test` skips the 70-second presence suite.
+
+Running the suite repeatedly creates real accounts, so it can trip the server's
+per-IP rate limits. The tests wait out any `429` automatically; to make repeat
+runs instant, start the server with generous limits:
+
+```bash
+AUTH_ATTEMPTS_PER_MIN=400 ROOMS_PER_HOUR=400 npm start
 ```
 
 ---

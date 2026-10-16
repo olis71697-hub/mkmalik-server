@@ -86,9 +86,17 @@ function connectSocket() {
 }
 
 // ── auth flow ──────────────────────────────────────────────────────────────
+/** Reveal the shell and hide the boot splash. Safe to call repeatedly. */
+function revealShell() {
+  const boot = $('#boot');
+  if (boot) boot.style.display = 'none';
+  const app = $('#app');
+  if (app) app.hidden = false;
+}
+
 export function showAuth() {
   const existing = $('#authScreen');
-  if (existing) return;
+  if (existing) { revealShell(); return; }
   const node = mountAuth({
     async onSubmit(mode, username, password, displayName) {
       const data = mode === 'register'
@@ -100,11 +108,11 @@ export function showAuth() {
     },
   });
   document.getElementById('app').append(node);
+  revealShell();
 }
 
 async function start() {
-  $('#app').hidden = false;
-  $('#boot').style.display = 'none';
+  revealShell();
 
   // load the profile before anything renders so the UI never flickers empty
   try {
@@ -175,6 +183,17 @@ window.__mkmalik = { App, go, toast, api };
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();
+
+// Safety net: the splash must never be the last thing on screen. If anything
+// in boot() throws, reveal the shell and say what went wrong.
+window.addEventListener('error', (e) => {
+  const boot = document.getElementById('boot');
+  if (boot && boot.style.display !== 'none') {
+    boot.innerHTML = '<div class="boot-logo">⚠️</div><div class="boot-name">Could not start</div>'
+      + `<div class="boot-sub" style="max-width:280px;text-align:center">${(e.message || 'Unknown error')}</div>`
+      + '<button class="btn btn--primary" style="margin-top:16px" onclick="location.reload()">Retry</button>';
+  }
+});
 
 // surface unexpected errors instead of dying silently
 window.addEventListener('unhandledrejection', (e) => {

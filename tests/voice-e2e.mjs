@@ -6,22 +6,7 @@
 /* End-to-end: two real clients, one room, real WebRTC signalling relay. */
 import { io } from 'socket.io-client';
 
-const BASE = process.env.BASE_URL || 'http://localhost:8080';
-let pass = 0, fail = 0;
-const check = (name, ok, extra = '') => {
-  console.log(`  ${ok ? '✅' : '❌'} ${name}${extra ? '  → ' + extra : ''}`);
-  ok ? pass++ : fail++;
-};
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function login(username) {
-  const res = await fetch(BASE + '/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password: 'demo1234' }),
-  });
-  return res.json();
-}
+import { BASE, sleep, apiFetch, freshUser, createRoom, emitAck, makeReporter } from './helpers.mjs';
 
 function connect(token) {
   return new Promise((resolve, reject) => {
@@ -32,18 +17,18 @@ function connect(token) {
   });
 }
 
-const emitAck = (sock, evt, payload = {}) =>
-  new Promise((resolve) => {
-    sock.emit(evt, payload, resolve);
-    setTimeout(() => resolve({ ok: false, error: 'ack timeout' }), 5000);
-  });
+/**
+ * Create a throwaway account for this run. Integration tests must not depend on
+ * state left behind by earlier runs — the per-user room-creation limit would
+ * otherwise trip after a few executions within the same hour.
+ */
 
-console.log('\n════ LIVE VOICE ROOM — END TO END ════\n');
+const R = makeReporter('LIVE VOICE ROOM — END TO END');
+const check = R.check;
 
-// ── sign in two different people ───────────────────────────────────────────
-const A = await login('mkmalik');
-const B = await login('aylin');
-console.log('  users:', A.user.displayName, '&', B.user.displayName);
+const A = await freshUser();
+const B = await freshUser();
+console.log('  accounts:', A.user.displayName, '&', B.user.displayName);
 
 const sockA = await connect(A.token);
 const sockB = await connect(B.token);
@@ -54,20 +39,16 @@ sockB.on('room:peers', (p) => peersBoxB.push(p.peers));
 const lastDir = (box, otherId) => box.at(-1)?.find((p) => p.userId === otherId)?.direction;
 check('both clients authenticated over websocket', !!sockA.id && !!sockB.id, `${sockA.id.slice(0,6)} / ${sockB.id.slice(0,6)}`);
 
-// ── A opens a room ─────────────────────────────────────────────────────────
-const created = await (await fetch(BASE + '/api/rooms', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + A.token },
-  body: JSON.stringify({ title: 'Voice test room', category: 'party', tags: ['test'] }),
-})).json();
+R.section('A opens a room');
+const created = await createRoom(A.token, { title: 'Voice test room', category: 'party', tags: ['test'] });
 const roomId = created.room.id;
 check('room created', !!roomId, created.room.title);
 
-// ── A joins and takes seat 1 ───────────────────────────────────────────────
+R.section('A joins and takes seat 1');
 const joinA = await emitAck(sockA, 'room:join', { roomId, seat: true });
 check('A joined + auto-seated', joinA.ok && joinA.room.viewer.seat === 0, `seat ${joinA.room?.viewer?.seat}`);
 
-// ── B joins as a listener ──────────────────────────────────────────────────
+R.section('B joins as a listener');
 const joinB = await emitAck(sockB, 'room:join', { roomId });
 check('B joined as listener', joinB.ok && joinB.room.viewer.seat === null);
 check('B sees A on mic seat 1', joinB.room.seats[0]?.userId === A.user.id);
@@ -77,14 +58,12 @@ check('B got a peer to listen to (A)', joinB.peers.some((p) => p.userId === A.us
 const bPeerToA = joinB.peers.find((p) => p.userId === A.user.id);
 check('listener direction is recvonly', bPeerToA?.direction === 'recvonly', bPeerToA?.direction);
 
-// ── A should learn about B (speaker publishes to listener) ─────────────────
+R.section('A should learn about B (speaker publishes to listener)');
 await sleep(400);
 check('A was told to publish toward B',
   ['sendonly', 'sendrecv'].includes(lastDir(peersBoxA, B.user.id)),
   'A→B ' + lastDir(peersBoxA, B.user.id));
 
-// ── WebRTC signalling relay, both directions ───────────────────────────────
-console.log('\n  — signalling relay —');
 const offerForB = { type: 'description', description: { type: 'offer', sdp: 'v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n' } };
 const gotOffer = new Promise((resolve) => sockB.once('rtc:signal', resolve));
 sockA.emit('rtc:signal', { to: B.user.id, data: offerForB });
@@ -104,7 +83,7 @@ const iceRes = await Promise.race([gotIce, sleep(3000).then(() => null)]);
 check('ICE candidate relayed A → B', iceRes?.data?.type === 'candidate');
 
 // a stranger must NOT be able to inject signalling into this room
-const C = await login('kenji');
+const C = await freshUser();
 const sockC = await connect(C.token);
 let injected = false;
 sockC.once('rtc:signal', () => { injected = true; });
@@ -113,8 +92,7 @@ await sleep(500);
 check('outsider cannot inject signalling', !injected);
 sockC.disconnect();
 
-// ── B takes seat 2 → both become speakers, direction flips to sendrecv ─────
-console.log('\n  — seat changes —');
+R.section('B takes seat 2 → both become speakers, direction flips to sendrecv');
 const seatB = await emitAck(sockB, 'seat:take', { index: 1 });
 check('B took mic seat 2', seatB.ok && seatB.seat === 1);
 
@@ -123,21 +101,19 @@ check('speaker↔speaker becomes sendrecv',
   lastDir(peersBoxB, A.user.id) === 'sendrecv' && lastDir(peersBoxA, B.user.id) === 'sendrecv',
   `A→B ${lastDir(peersBoxA, B.user.id)}, B→A ${lastDir(peersBoxB, A.user.id)}`);
 
-// ── mute state ─────────────────────────────────────────────────────────────
+R.section('mute state');
 const muteRes = await emitAck(sockB, 'seat:mute', { muted: true });
 check('mic mute acknowledged', muteRes.ok && muteRes.muted === true);
 
-// ── chat in the room ───────────────────────────────────────────────────────
-console.log('\n  — room chat —');
+R.section('chat in the room');
 const chatGot = new Promise((resolve) => sockB.once('room:message', resolve));
 const chatSent = await emitAck(sockA, 'chat:send', { body: 'Hello from the test 👋' });
 const chatMsg = await Promise.race([chatGot, sleep(3000).then(() => null)]);
 check('message broadcast to the other person', chatMsg?.body === 'Hello from the test 👋', chatMsg?.user?.displayName);
 
-// ── gifts move coins, server-side ──────────────────────────────────────────
-console.log('\n  — gift economy —');
-const beforeA = (await (await fetch(BASE + '/api/me', { headers: { Authorization: 'Bearer ' + A.token } })).json()).user.coins;
-const beforeB = (await (await fetch(BASE + '/api/me', { headers: { Authorization: 'Bearer ' + B.token } })).json()).user.diamonds;
+R.section('gifts move coins, server-side');
+const beforeA = (await apiFetch('/api/me', { token: A.token })).data.user.coins;
+const beforeB = (await apiFetch('/api/me', { token: B.token })).data.user.diamonds;
 
 const giftFx = new Promise((resolve) => sockB.once('room:gift', resolve));
 const giftRes = await emitAck(sockA, 'gift:send', { giftId: 'rose', toUserId: B.user.id, qty: 5 });
@@ -145,8 +121,8 @@ const fx = await Promise.race([giftFx, sleep(3000).then(() => null)]);
 check('gift accepted', giftRes.ok, `rose ×5 = ${giftRes.event?.coins} coins`);
 check('gift broadcast for the animation', fx?.gift?.emoji === '🌹' && fx?.qty === 5);
 
-const afterA = (await (await fetch(BASE + '/api/me', { headers: { Authorization: 'Bearer ' + A.token } })).json()).user.coins;
-const afterB = (await (await fetch(BASE + '/api/me', { headers: { Authorization: 'Bearer ' + B.token } })).json()).user.diamonds;
+const afterA = (await apiFetch('/api/me', { token: A.token })).data.user.coins;
+const afterB = (await apiFetch('/api/me', { token: B.token })).data.user.diamonds;
 check('sender coins deducted', beforeA - afterA === 50, `${beforeA} → ${afterA}`);
 check('receiver diamonds credited', afterB - beforeB === 50, `${beforeB} → ${afterB}`);
 
@@ -154,26 +130,20 @@ check('receiver diamonds credited', afterB - beforeB === 50, `${beforeB} → ${a
 const cheat = await emitAck(sockA, 'gift:send', { giftId: 'dragon', toUserId: B.user.id, qty: 99 });
 check('unaffordable gift is rejected by the server', cheat.ok === false, cheat.error);
 
-// ── leaving frees the seat and the room closes when empty ─────────────────
-console.log('\n  — lifecycle —');
+R.section('leaving frees the seat and the room closes when empty');
 const leftB = await emitAck(sockB, 'room:leave', {});
 check('B left the room', leftB.ok);
 await sleep(300);
-const snapAfter = await (await fetch(BASE + '/api/rooms/' + roomId)).json();
+const snapAfter = (await apiFetch('/api/rooms/' + roomId)).data;
 check('B is no longer on seat 2', snapAfter.room.seats[1] === null);
 
 await emitAck(sockA, 'room:leave', {});
 await sleep(600);
-const closed = await fetch(BASE + '/api/rooms/' + roomId);
+const closed = await apiFetch('/api/rooms/' + roomId);
 check('empty room closed automatically', closed.status === 404, 'HTTP ' + closed.status);
 
-// ── host controls ──────────────────────────────────────────────────────────
-console.log('\n  — host controls —');
-const room2 = await (await fetch(BASE + '/api/rooms', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + A.token },
-  body: JSON.stringify({ title: 'Moderation room', category: 'chat' }),
-})).json();
+R.section('host controls');
+const room2 = await createRoom(A.token, { title: 'Moderation room', category: 'chat' });
 const s1 = await connect(A.token);
 const s2 = await connect(B.token);
 await emitAck(s1, 'room:join', { roomId: room2.room.id, seat: true });
@@ -193,5 +163,4 @@ check('host can end the room', endRes.ok);
 
 s1.disconnect(); s2.disconnect(); sockA.disconnect(); sockB.disconnect();
 
-console.log(`\n════ RESULT: ${pass} passed, ${fail} failed ════\n`);
-process.exit(fail ? 1 : 0);
+process.exit(R.finish() ? 0 : 1);

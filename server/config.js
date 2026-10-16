@@ -68,9 +68,9 @@ const config = {
 
   // Abuse protection ------------------------------------------------------
   limits: {
-    loginAttemptsPerMin: 12,
+    loginAttemptsPerMin: num(process.env.AUTH_ATTEMPTS_PER_MIN, 12),
     msgsPer10s: 14,
-    roomsCreatedPerHour: 6,
+    roomsCreatedPerHour: num(process.env.ROOMS_PER_HOUR, 6),
     giftsPer10s: 8,
     followPerMin: 30,
     momentsPerHour: 12,

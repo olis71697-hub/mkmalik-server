@@ -450,7 +450,13 @@ function mount(io) {
 
   // ---- background sweeper ---------------------------------------------------
   setInterval(() => {
-    const closed = state.sweep();
+    // Anyone whose socket is still in the room counts as present, no matter how
+    // badly the browser throttled their heartbeat timers.
+    const liveMembers = new Set();
+    for (const s of io.sockets.sockets.values()) {
+      if (s.data?.roomId && s.user?.id) liveMembers.add(`${s.data.roomId}:${s.user.id}`);
+    }
+    const closed = state.sweep(liveMembers);
     for (const id of closed) io.to(roomChannel(id)).emit('room:closed', { reason: 'empty' });
     const st = state.stats();
     io.emit('server:stats', st);
