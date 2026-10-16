@@ -1,0 +1,28 @@
+node_modules/
+data/
+*.log
+npm-debug.log*
+
+# uploads & local database
+data/uploads/*
+!data/uploads/.gitkeep
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# env
+.env
+.env.local
+.env.*.local
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# screenshots produced by the test harness
+/tmp/
+*.png
+!docs/**/*.png

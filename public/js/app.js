@@ -1,0 +1,183 @@
+/* App shell — session, routing, socket lifecycle, screen mounting. */
+
+import { $, $$, el, toast, bus, svg, ICON, haptic } from './util.js';
+import { api, session, ApiError } from './api.js';
+import { mountExplore }   from './screens/explore.js';
+import { mountMoments }   from './screens/moments.js';
+import { mountChat }      from './screens/chat.js';
+import { mountProfile }   from './screens/profile.js';
+import { mountRoom }      from './screens/room.js';
+import { mountAuth }      from './screens/auth.js';
+
+/** Shared application context handed to every screen. */
+export const App = {
+  user: null,
+  socket: null,
+  online: true,
+  events: bus(),
+  current: 'explore',
+  wallet: { coins: 0, diamonds: 0 },
+  socketReady: false,
+
+  setWallet({ coins, diamonds }) {
+    if (coins !== undefined) this.wallet.coins = coins;
+    if (diamonds !== undefined) this.wallet.diamonds = diamonds;
+    this.events.emit('wallet', this.wallet);
+  },
+};
+
+// ── routing ────────────────────────────────────────────────────────────────
+const screens = ['explore', 'moments', 'chat', 'profile'];
+
+export function go(name) {
+  if (!screens.includes(name)) name = 'explore';
+  App.current = name;
+  for (const s of screens) {
+    const node = $(`.screen[data-screen="${s}"]`);
+    if (node) node.hidden = s !== name;
+  }
+  $$('.tabbar-item').forEach((b) => b.classList.toggle('is-active', b.dataset.go === name));
+  App.events.emit('route', name);
+  try { history.replaceState(null, '', '#' + name); } catch (_) {}
+}
+
+// ── socket ─────────────────────────────────────────────────────────────────
+function connectSocket() {
+  if (App.socket) { App.socket.disconnect(); App.socket = null; }
+  const socket = io({ auth: { token: session.token }, transports: ['websocket', 'polling'] });
+
+  socket.on('connect', () => {
+    App.socketReady = true;
+    App.events.emit('socket', { connected: true });
+    if (!App.online) { App.online = true; toast('Back online', 'ok'); }
+  });
+  socket.on('disconnect', (reason) => {
+    App.socketReady = false;
+    App.events.emit('socket', { connected: false, reason });
+  });
+  socket.on('connect_error', (err) => {
+    App.events.emit('socket-error', err.message);
+    if (err.message === 'AUTH_FAILED' || err.message === 'AUTH_REQUIRED') {
+      session.clear();
+      showAuth();
+    }
+  });
+
+  socket.on('ready', ({ user, seats }) => {
+    App.user = { ...App.user, ...user };
+    App.setWallet(user);
+    App.seats = seats;
+    App.events.emit('user', App.user);
+  });
+
+  socket.on('notification', (n) => {
+    toast(n.title ? `${n.title} — ${n.body}` : n.body);
+  });
+
+  // global heartbeat → keeps presence + room membership alive
+  const beat = setInterval(() => {
+    if (App.socket?.connected) App.socket.emit('presence:ping');
+  }, 20_000);
+
+  socket.on('disconnect', () => clearInterval(beat));
+
+  App.socket = socket;
+  return socket;
+}
+
+// ── auth flow ──────────────────────────────────────────────────────────────
+export function showAuth() {
+  const existing = $('#authScreen');
+  if (existing) return;
+  const node = mountAuth({
+    async onSubmit(mode, username, password, displayName) {
+      const data = mode === 'register'
+        ? await api.register(username, password, displayName)
+        : await api.login(username, password);
+      session.set(data.token, data.user);
+      node.remove();
+      await start();
+    },
+  });
+  document.getElementById('app').append(node);
+}
+
+async function start() {
+  $('#app').hidden = false;
+  $('#boot').style.display = 'none';
+
+  // load the profile before anything renders so the UI never flickers empty
+  try {
+    const { user, wallet } = await api.me();
+    App.user = user;
+    App.setWallet(wallet);
+  } catch (e) {
+    if (e.status === 401) { session.clear(); showAuth(); return; }
+    toast(e.message, 'err');
+  }
+
+  connectSocket();
+  App.events.emit('started', App);
+}
+
+// screens ask for navigation through the shared event bus
+App.events.on('route:go', (name) => go(name));
+
+// ── global UI wiring ───────────────────────────────────────────────────────
+function wireChrome() {
+  $$('.tabbar-item').forEach((btn) => {
+    btn.addEventListener('click', () => { haptic(); go(btn.dataset.go); });
+  });
+
+  document.addEventListener('click', (ev) => {
+    const closer = ev.target.closest('[data-close]');
+    if (closer) {
+      const sheet = document.getElementById(closer.dataset.close);
+      if (sheet) sheet.hidden = true;
+    }
+  });
+
+  // room chrome
+  $('#roomBack')?.addEventListener('click', () => App.events.emit('room:leave-request'));
+
+  // create-room action (also used by the empty state)
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-action="create-room"]');
+    if (btn) { ev.preventDefault(); App.events.emit('create-room'); }
+  });
+
+  window.addEventListener('online', () => { App.online = true; App.events.emit('net', true); });
+  window.addEventListener('offline', () => { App.online = false; App.events.emit('net', false); toast('You are offline', 'err'); });
+
+  document.addEventListener('visibilitychange', () => {
+    App.events.emit('visibility', !document.hidden);
+  });
+}
+
+// ── boot ───────────────────────────────────────────────────────────────────
+async function boot() {
+  wireChrome();
+  mountExplore(App);
+  mountMoments(App);
+  mountChat(App);
+  mountProfile(App);
+  mountRoom(App);
+  go('explore');
+
+  const hash = location.hash.replace('#', '');
+  if (screens.includes(hash)) go(hash);
+
+  if (!session.token) { showAuth(); return; }
+  await start();
+}
+
+window.__mkmalik = { App, go, toast, api };
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();
+
+// surface unexpected errors instead of dying silently
+window.addEventListener('unhandledrejection', (e) => {
+  const msg = e.reason?.message || '';
+  if (msg && !/play\(\) request was interrupted|AbortError/.test(msg)) console.warn('[app]', msg);
+});
