@@ -2,7 +2,7 @@
   "name": "mkmalik-server",
   "version": "1.0.0",
   "private": true,
-  "description": "Saada-style live group voice chat platform \u2014 real-time voice rooms, 10 mic seats, moments, chat, gifts. Self-hosted.",
+  "description": "Saada-style live group voice chat platform — real-time voice rooms, 10 mic seats, moments, chat, gifts. Self-hosted.",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
@@ -23,7 +23,8 @@
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
+    "jsdom": "^25.0.1",
     "socket.io-client": "^4.8.1",
-    "jsdom": "^25.0.1"
+    "yaml": "^2.9.1"
   }
 }
