@@ -15,6 +15,9 @@ name: verify the public app
 # digging through logs.
 
 on:
+  push:
+    paths:
+      - 'verify.trigger'
   workflow_dispatch:
 
 permissions:
