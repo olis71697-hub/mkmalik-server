@@ -1,0 +1,67 @@
+{
+  "id": "./?source=pwa",
+  "name": "MK Malik — Live Group Voice Chat",
+  "short_name": "MK Malik",
+  "description": "Live group voice rooms with 10 mic seats. Talk, sing, host parties and send gifts in real time.",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#ff5a1f",
+  "lang": "bn",
+  "dir": "ltr",
+  "categories": [
+    "social",
+    "communication",
+    "music"
+  ],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Open a room",
+      "short_name": "New room",
+      "url": "./?action=create",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "My profile",
+      "short_name": "Profile",
+      "url": "./#profile",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}

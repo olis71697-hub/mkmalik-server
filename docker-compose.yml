@@ -1,0 +1,45 @@
+services:
+  app:
+    build: .
+    image: mkmalik-server:latest
+    container_name: mkmalik
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      TRUST_PROXY: "1"
+      # generate one with:  openssl rand -hex 48
+      JWT_SECRET: ${JWT_SECRET:-}
+      # voice across mobile networks needs a relay — see .env.example
+      TURN_URL: ${TURN_URL:-}
+      TURN_USERNAME: ${TURN_USERNAME:-}
+      TURN_CREDENTIAL: ${TURN_CREDENTIAL:-}
+      TURN_SECRET: ${TURN_SECRET:-}
+    volumes:
+      - mkmalik-data:/app/data
+
+  # Optional: your own TURN server so voice works behind any NAT.
+  # Detects the host's public IP automatically and uses the shared secret
+  # configured below (matching TURN_SECRET above).
+  coturn:
+    image: coturn/coturn:latest
+    container_name: mkmalik-turn
+    restart: unless-stopped
+    network_mode: host
+    command: >
+      -n
+      --log-file=stdout
+      --min-port=49160 --max-port=49200
+      --fingerprint
+      --use-auth-secret
+      --static-auth-secret=${TURN_SECRET:-change-me}
+      --realm=${TURN_REALM:-mkmalik}
+      --no-cli
+      --no-tls
+      --no-dtls
+    profiles: ["turn"]
+
+volumes:
+  mkmalik-data:

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="bn" dir="ltr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no" />
+<meta name="theme-color" content="#ff5a1f" />
+<meta name="description" content="MK Malik — live group voice chat rooms. 10 mic seats, real-time audio, gifts and moments." />
+<title>MK Malik — Live Group Voice Chat</title>
+
+<!-- Installable app -->
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="MK Malik" />
+<meta name="application-name" content="MK Malik" />
+
+<link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+
+<div id="boot" class="boot">
+  <div class="boot-logo">🎙️</div>
+  <div class="boot-name">MK Malik</div>
+  <div class="boot-sub">live voice rooms</div>
+  <div class="boot-bar"><i></i></div>
+</div>
+
+<div id="app" class="app" hidden>
+
+  <!-- ══════════════════════════ EXPLORE (home) ══════════════════════════ -->
+  <section class="screen screen--explore" data-screen="explore">
+    <header class="topbar">
+      <nav class="tabs" id="exploreTabs">
+        <button class="tab" data-sort="related">Related</button>
+        <button class="tab" data-sort="hot">Hot</button>
+        <button class="tab is-active" data-sort="explore">Explore</button>
+      </nav>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="btnRank" aria-label="Ranking"><svg viewBox="0 0 24 24"><path d="M6 4h12v3a6 6 0 0 1-12 0V4Z"/><path d="M6 5H4v1.5A2.5 2.5 0 0 0 6.5 9M18 5h2v1.5A2.5 2.5 0 0 1 17.5 9"/><path d="M10 14h4l-.5 4h-3l-.5-4Z"/><path d="M8.5 20h7"/></svg></button>
+        <button class="icon-btn" id="btnSearch" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg></button>
+        <button class="icon-btn" id="btnDiscover" aria-label="Discover"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5 5-2Z"/></svg></button>
+      </div>
+    </header>
+
+    <div class="chips" id="exploreChips"></div>
+
+    <div class="screen-body" id="exploreScroll">
+      <div class="grid" id="exploreGrid"></div>
+      <div class="empty-state" id="exploreEmpty" hidden>
+        <div class="empty-emoji">🛋️</div>
+        <h3>No live rooms here yet</h3>
+        <p>Be the first — open a room and start talking.</p>
+        <button class="btn btn--primary" data-action="create-room">Open a room</button>
+      </div>
+      <div class="grid-spacer"></div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════ MOMENTS ═════════════════════════════════ -->
+  <section class="screen screen--moments" data-screen="moments" hidden>
+    <header class="topbar">
+      <nav class="tabs tabs--single"><span class="tab is-active">Moments</span></nav>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="btnMomentCompose" aria-label="New moment"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+      </div>
+    </header>
+    <div class="screen-body" id="momentsScroll">
+      <div class="moments-list" id="momentsList"></div>
+      <div class="grid-spacer"></div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════ CHAT ════════════════════════════════════ -->
+  <section class="screen screen--chat" data-screen="chat" hidden>
+    <header class="topbar">
+      <nav class="tabs tabs--single"><span class="tab is-active">Messages</span></nav>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="btnNewChat" aria-label="New chat"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+      </div>
+    </header>
+    <div class="screen-body" id="chatScroll">
+      <div class="conv-list" id="convList"></div>
+      <div class="grid-spacer"></div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════ PROFILE ═════════════════════════════════ -->
+  <section class="screen screen--profile" data-screen="profile" hidden>
+    <div class="screen-body" id="profileScroll">
+      <div class="profile" id="profileRoot"></div>
+      <div class="grid-spacer"></div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════ BOTTOM NAV ══════════════════════════════ -->
+  <nav class="tabbar" id="tabbar">
+    <button class="tabbar-item is-active" data-go="explore">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5 5-2Z"/></svg>
+      <span>Explore</span>
+    </button>
+    <button class="tabbar-item" data-go="moments">
+      <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="3"/><path d="M8 6l1.5-2h5L16 6"/><circle cx="12" cy="13" r="3.2"/></svg>
+      <span>Moments</span>
+    </button>
+    <button class="tabbar-create" data-action="create-room" aria-label="Open a room">
+      <span class="tabbar-create-inner"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+    </button>
+    <button class="tabbar-item" data-go="chat">
+      <svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8Z"/></svg>
+      <span>Chat</span><i class="dot" id="chatDot" hidden></i>
+    </button>
+    <button class="tabbar-item" data-go="profile">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+      <span>Profile</span>
+    </button>
+  </nav>
+
+  <!-- ══════════════════════════ ROOM (full screen) ══════════════════════ -->
+  <div class="room" id="room" hidden>
+    <header class="room-top">
+      <button class="icon-btn icon-btn--glass" id="roomBack" aria-label="Leave"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+      <div class="room-head" id="roomHead">
+        <div class="room-host">
+          <img class="avatar avatar--xs" id="roomHostAvatar" alt="" />
+          <div class="room-host-meta">
+            <span class="room-host-name" id="roomHostName">Host</span>
+            <span class="room-host-id" id="roomHostId">ID 000000</span>
+          </div>
+        </div>
+      </div>
+      <div class="room-top-actions">
+        <div class="room-box" id="roomBox" title="Room ID">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16v12H4z"/><path d="M4 7l2-3h12l2 3"/><path d="M9.5 13.5h5"/></svg>
+          <span id="roomBoxText">000000</span>
+        </div>
+        <button class="icon-btn icon-btn--glass" id="roomMore" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button>
+      </div>
+    </header>
+
+    <div class="room-banner" id="roomBanner">
+      <div class="room-title-row">
+        <span class="room-live-dot"></span>
+        <h2 id="roomTitle">Room</h2>
+      </div>
+      <p id="roomTopic" class="room-topic"></p>
+      <div class="room-stats" id="roomStats"></div>
+    </div>
+
+    <div class="room-scroll" id="roomScroll">
+      <div class="seats" id="seats"></div>
+      <div class="room-empty-slots" id="roomSlots"></div>
+
+      <div class="room-chat" id="roomChat">
+        <div class="chat-log" id="chatLog"></div>
+      </div>
+      <div class="room-chat-spacer"></div>
+    </div>
+
+    <div class="room-actions" id="roomActions">
+      <button class="mic-btn" id="micBtn">
+        <svg viewBox="0 0 24 24" class="ic-mic"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+        <svg viewBox="0 0 24 24" class="ic-micoff"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/><path d="m4 4 16 16"/></svg>
+        <span id="micLabel">Join mic</span>
+      </button>
+      <button class="act-btn" id="giftBtn" aria-label="Gift"><svg viewBox="0 0 24 24"><path d="M4 11h16v9H4z"/><path d="M3 7h18v4H3z"/><path d="M12 7v13"/><path d="M12 7S10.5 3 8 3a2.5 2.5 0 0 0 0 4"/><path d="M12 7s1.5-4 4-4a2.5 2.5 0 0 1 0 4"/></svg><span>Gift</span></button>
+      <button class="act-btn" id="handBtn" aria-label="Raise hand"><svg viewBox="0 0 24 24"><path d="M8 11V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M11 10V4.5a1.5 1.5 0 0 1 3 0V11"/><path d="M14 10.5V6a1.5 1.5 0 0 1 3 0v9a6 6 0 0 1-6 6h-1a6 6 0 0 1-5.2-3L4 15.5a1.6 1.6 0 0 1 2.6-1.8L8 15"/></svg><span>Hand</span></button>
+      <button class="act-btn" id="chatBtn" aria-label="Chat"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8Z"/></svg><span>Chat</span></button>
+      <button class="act-btn" id="shareBtn" aria-label="Share"><svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.6 6.8-4M8.6 13.4l6.8 4"/></svg><span>Share</span></button>
+    </div>
+
+    <form class="room-inputbar" id="roomInputBar" hidden>
+      <input id="roomInput" type="text" placeholder="Say something…" maxlength="500" autocomplete="off" />
+      <button type="submit" class="send-btn" aria-label="Send"><svg viewBox="0 0 24 24"><path d="m4 12 16-8-6 16-3-6-7-2Z"/></svg></button>
+    </form>
+  </div>
+
+  <!-- host / seat management sheet -->
+  <div class="sheet" id="sheet" hidden>
+    <div class="sheet-scrim" data-close="sheet"></div>
+    <div class="sheet-panel" id="sheetPanel"></div>
+  </div>
+
+  <!-- gift sheet -->
+  <div class="sheet" id="giftSheet" hidden>
+    <div class="sheet-scrim" data-close="giftSheet"></div>
+    <div class="sheet-panel sheet-panel--tall" id="giftPanel"></div>
+  </div>
+
+  <div class="toasts" id="toasts"></div>
+  <div class="fx-layer" id="fxLayer"></div>
+
+  <!-- Install prompt: shown when the browser says the app can be installed -->
+  <div class="install-bar" id="installBar" hidden>
+    <img class="install-icon" src="icons/icon-192.png" alt="" />
+    <div class="install-text">
+      <b>Install MK Malik</b>
+      <span>Open it like a real app — full screen, right from your home screen</span>
+    </div>
+    <button class="btn btn--primary btn--sm" id="installBtn">Install</button>
+    <button class="icon-btn" id="installClose" aria-label="Dismiss">
+      <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

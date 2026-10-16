@@ -1,0 +1,53 @@
+# Render Blueprint — one-click deploy of MK Malik.
+#
+#   1. Push this repo to GitHub
+#   2. https://render.com/deploy?repo=<your-repo-url>
+#   3. Render reads this file, builds, and gives you an HTTPS URL
+#
+# HTTPS matters: browsers only grant microphone access on https:// or
+# localhost, so this is what makes voice actually work for your users.
+
+services:
+  - type: web
+    name: mkmalik
+    runtime: node
+    plan: free
+    region: singapore          # closest to South Asia; change as you like
+    buildCommand: npm install --omit=dev --no-audit --no-fund
+    startCommand: node server/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # Land visitors straight in the app instead of the sign-in screen.
+      # Set to 0 once you want a real public deployment with proper accounts.
+      - key: DEMO_AUTO_LOGIN
+        value: "1"
+
+      # Render terminates TLS in front of the app
+      - key: TRUST_PROXY
+        value: "1"
+
+      # Generated once and kept — otherwise every deploy signs everyone out
+      - key: JWT_SECRET
+        generateValue: true
+
+      # Voice across mobile networks needs a TURN relay. Add these from your
+      # TURN provider (or a self-hosted coturn) to fix "connected but silent".
+      # - key: TURN_URL
+      #   sync: false
+      # - key: TURN_USERNAME
+      #   sync: false
+      # - key: TURN_CREDENTIAL
+      #   sync: false
+
+# NOTE — Render's free plan has an ephemeral filesystem: rooms, accounts and
+# uploaded images reset on each deploy or restart. The server re-seeds itself
+# automatically, so the app always comes up populated. For permanent storage,
+# move to a paid plan and attach a disk:
+#
+#   disk:
+#     name: mkmalik-data
+#     mountPath: /app/data
+#     sizeGB: 1
