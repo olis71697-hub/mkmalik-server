@@ -46,6 +46,7 @@ jobs:
           PY
 
           APP='https://cdn.jsdelivr.net/gh/olis71697-hub/mkmalik-server@main/public'
+          ENTRY="$APP/index.html"   # a file host answers the bare directory with its own listing
           HINT='https://raw.githubusercontent.com/olis71697-hub/mkmalik-server/arena/bdc831c9-mkmalik-server/backend.json'
           UA='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
 
@@ -56,10 +57,23 @@ jobs:
 
           echo
           echo "── the published app ──"
-          HTML=$(curl -s -A "$UA" -o /tmp/page.html -w '%{http_code}/%{content_type}' --max-time 30 "$APP/" || echo 000/err)
-          echo "GET $APP/  ->  $HTML"
+          HTML=$(curl -s -A "$UA" -o /tmp/page.html -w '%{http_code}/%{content_type}' --max-time 30 "$ENTRY" || echo 000/err)
+          echo "GET $ENTRY  ->  $HTML"
           TITLE=$(grep -oE '<title>[^<]*' /tmp/page.html | head -1 || true)
           echo "title: $TITLE"
+          if grep -q 'MK Malik' /tmp/page.html; then SERVED="app-html"; else SERVED="NOT-the-app"; fi
+          echo "served: $SERVED"
+
+          # a single 404 anywhere in the module graph breaks the whole app
+          MISSING=""
+          for f in js/app.js js/util.js js/api.js js/runtime.js js/local.js js/rtc.js \
+                   js/screens/auth.js js/screens/chat.js js/screens/explore.js \
+                   js/screens/moments.js js/screens/profile.js js/screens/room.js; do
+            C=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$APP/$f" || echo 000)
+            [ "$C" = "200" ] || MISSING="$MISSING $f:$C"
+          done
+          if [ -z "$MISSING" ]; then MODULES="modules=12/12"; else MODULES="modules-MISSING:$MISSING"; fi
+          echo "$MODULES"
 
           JS=$(curl -s -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/js/app.js" || echo 000/err)
           SW=$(curl -s -o /dev/null -w '%{http_code}/%{content_type}' --max-time 30 "$APP/sw.js" || echo 000/err)
@@ -77,8 +91,8 @@ jobs:
           if echo "$RUNTIME" | grep -q 'BACKEND_HINT_URLS'; then DISC="discovery=yes"; else DISC="discovery=NO"; fi
           echo "$DISC"
 
-          python3 /tmp/report.py public-app-html "$APP/ $HTML ${TITLE:-no-title}"
-          python3 /tmp/report.py public-app-assets "js=$JS sw=$SW man=$MAN icon=$ICON css=$CSS $DISC"
+          python3 /tmp/report.py public-app-html "$HTML $SERVED ${TITLE:-no-title}"
+          python3 /tmp/report.py public-app-assets "js=$JS sw=$SW man=$MAN icon=$ICON css=$CSS $DISC $MODULES"
 
           echo
           echo "── the advertised backend ──"

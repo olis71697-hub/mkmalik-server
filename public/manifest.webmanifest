@@ -1,9 +1,9 @@
 {
-  "id": "./?source=pwa",
+  "id": "./index.html?source=pwa",
   "name": "MK Malik — Live Group Voice Chat",
   "short_name": "MK Malik",
   "description": "Live group voice rooms with 10 mic seats. Talk, sing, host parties and send gifts in real time.",
-  "start_url": "./?source=pwa",
+  "start_url": "./index.html?source=pwa",
   "scope": "./",
   "display": "standalone",
   "display_override": [
@@ -44,7 +44,7 @@
     {
       "name": "Open a room",
       "short_name": "New room",
-      "url": "./?action=create",
+      "url": "./index.html?action=create",
       "icons": [
         {
           "src": "icons/icon-192.png",
@@ -55,7 +55,7 @@
     {
       "name": "My profile",
       "short_name": "Profile",
-      "url": "./#profile",
+      "url": "./index.html#profile",
       "icons": [
         {
           "src": "icons/icon-192.png",
