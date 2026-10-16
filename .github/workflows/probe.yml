@@ -1,0 +1,65 @@
+name: probe static hosts
+
+# Which third-party GitHub static hosts actually serve this app as a page?
+# A host that returns index.html as text/plain shows the visitor source code,
+# not an app, so the content type matters as much as the status code.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: try each host with a browser user agent
+        env:
+          R: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          T: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > /tmp/report.py <<'PY'
+          import json, os, sys, urllib.request
+          ctx, desc = sys.argv[1], sys.argv[2][:140]
+          body = json.dumps({"state": "success", "context": ctx, "description": desc}).encode()
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['R']}/statuses/{os.environ['SHA']}",
+              data=body, method='POST',
+              headers={"Authorization": f"Bearer {os.environ['T']}",
+                       "Accept": "application/vnd.github+json",
+                       "Content-Type": "application/json"})
+          print(ctx, "->", desc)
+          urllib.request.urlopen(req).read()
+          PY
+
+          UA='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+
+          check () { # check <label> <index.html url>
+            local label="$1" url="$2"
+            local out ct code title served
+            out=$(curl -sSL -A "$UA" -o /tmp/p.html -w '%{http_code}|%{content_type}' --max-time 40 "$url" || echo '000|err')
+            code=${out%%|*}; ct=${out##*|}
+            title=$(grep -oE '<title>[^<]*' /tmp/p.html | head -1 | cut -c1-40 || true)
+            if grep -q 'MK Malik' /tmp/p.html; then served='OUR-APP'; else served='NOT-ours'; fi
+            echo "[$label] $code $ct  $served  $title"
+            python3 /tmp/report.py "host-$label" "$code $ct $served ${title:-}"
+          }
+
+          # the manifest must come back with a JSON type or the phone ignores it
+          for u in "manifest.json" "sw.js" "css/app.css" "icons/icon-192.png" "js/runtime.js"; do
+            OUT=$(curl -sL -o /dev/null -w '%{http_code}|%{content_type}' --max-time 30 \
+                  "https://raw.githack.com/olis71697-hub/mkmalik-server/arena/bdc831c9-mkmalik-server/public/$u" || echo '000|err')
+            echo "[githack-branch] $u -> $OUT"
+            python3 /tmp/report.py "mime-$u" "$OUT"
+          done
+
+          check jsdelivr   "https://cdn.jsdelivr.net/gh/olis71697-hub/mkmalik-server@main/public/index.html"
+          check githack    "https://raw.githack.com/olis71697-hub/mkmalik-server/main/public/index.html"
+          check rawcdn     "https://rawcdn.githack.com/olis71697-hub/mkmalik-server/main/public/index.html"
+          check statically "https://cdn.statically.io/gh/olis71697-hub/mkmalik-server/main/public/index.html"
+          check pages      "https://olis71697-hub.github.io/mkmalik-server/index.html"
+          check tunnel     "$(curl -s --max-time 20 https://raw.githubusercontent.com/olis71697-hub/mkmalik-server/arena/bdc831c9-mkmalik-server/backend.json | python3 -c 'import json,sys;print(json.load(sys.stdin)["backend"])' 2>/dev/null || echo https://example.com)/index.html"
