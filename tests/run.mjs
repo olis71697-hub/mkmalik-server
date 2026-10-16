@@ -37,6 +37,7 @@ if (!await reachable(BASE)) {
 // presence.mjs deliberately idles past the ghost timeout, so it takes ~70s
 const SUITES = [
   'fresh-visit.mjs',
+  'pwa.mjs',
   'voice-e2e.mjs',
   'peer-topology.mjs',
   'presence.mjs',

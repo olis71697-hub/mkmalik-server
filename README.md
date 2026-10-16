@@ -85,6 +85,31 @@ unit and nginx config.
 
 ---
 
+## Install it like a real app
+
+MK Malik is a **PWA**. Once it is open in a browser it can be installed to the
+home screen and then launches full screen, with its own icon, no browser bars.
+
+**Android / Chrome** — an install bar appears at the bottom of the app; tap
+**Install**. Or use the browser menu → *Install app*.
+
+**iPhone / Safari** — tap **Share** → *Add to Home Screen*. (iOS has no install
+API, so the in-app button tells you the steps instead.)
+
+The service worker is deliberately conservative: it never caches `/api/` or
+`/socket.io/`, so a room you open is always live. It only caches the shell, the
+icons and the manifest — enough to be installable and to show something
+sensible if the network drops.
+
+Two things to know:
+
+* Installation needs `https://` (or `localhost`). A plain `http://` address
+  cannot be installed, and the microphone stays blocked there too.
+* Installing does not create a separate app — it is the same server, opened
+  without browser chrome.
+
+---
+
 ## Quick start
 
 ```bash
@@ -328,15 +353,18 @@ mocked, the tests talk to the running server exactly as a browser would:
 | Suite | What it proves |
 |---|---|
 | `fresh-visit.mjs` | A first-time visitor never gets a blank page — they land in the app (demo auto-login) or on a working sign-in screen |
+| `pwa.mjs` | The app is genuinely installable: valid manifest, real PNG icons at both sizes, a maskable icon, a registered service worker that never caches live data, and the iOS meta tags |
 | `voice-e2e.mjs` | Room creation, seat taking, SDP/ICE relayed both ways, outsiders cannot inject signalling, chat delivery, gifts moving coins server-side, host moderation, empty rooms closing |
 | `peer-topology.mjs` | The audio graph is right at every stage: `sendonly/recvonly` for speaker→listener, `sendrecv` between speakers, no listener↔listener links, and a full 10-seat room refusing an 11th speaker |
 | `presence.mjs` | A backgrounded phone that stops sending heartbeats keeps its mic seat, while a real disconnect frees it instantly |
 
 ```
-════ RESULT: 28 passed, 0 failed ════
-════ RESULT: 13 passed, 0 failed ════
-════ RESULT:  7 passed, 0 failed ════
-✅ all integration tests passed
+════ RESULT:  5 passed, 0 failed ════   fresh-visit
+════ RESULT: 25 passed, 0 failed ════   pwa
+════ RESULT: 28 passed, 0 failed ════   voice-e2e
+════ RESULT: 13 passed, 0 failed ════   peer-topology
+════ RESULT:  7 passed, 0 failed ════   presence
+✅ all integration tests passed         78 assertions
 ```
 
 `SKIP_SLOW=1 npm test` skips the 70-second presence suite.
@@ -366,6 +394,9 @@ server/
   seed.js          demo cast, gift catalog, official rooms
 public/
   index.html       app shell
+  manifest.webmanifest  PWA install metadata
+  sw.js            service worker (shell only — never caches live data)
+  icons/           generated PNG app icons
   css/app.css      the whole design system
   js/app.js        session, routing, socket lifecycle
   js/api.js        REST client

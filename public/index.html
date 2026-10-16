@@ -3,10 +3,20 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no" />
-<meta name="theme-color" content="#ffffff" />
+<meta name="theme-color" content="#ff5a1f" />
 <meta name="description" content="MK Malik — live group voice chat rooms. 10 mic seats, real-time audio, gifts and moments." />
 <title>MK Malik — Live Group Voice Chat</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ff5a1f'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle'%3E%F0%9F%8E%99%3C/text%3E%3C/svg%3E" />
+
+<!-- Installable app -->
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/icons/icon-192.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="MK Malik" />
+<meta name="application-name" content="MK Malik" />
 <link rel="preconnect" href="/" />
 <link rel="stylesheet" href="/css/app.css" />
 </head>
@@ -182,6 +192,19 @@
 
   <div class="toasts" id="toasts"></div>
   <div class="fx-layer" id="fxLayer"></div>
+
+  <!-- Install prompt: shown when the browser says the app can be installed -->
+  <div class="install-bar" id="installBar" hidden>
+    <img class="install-icon" src="/icons/icon-192.png" alt="" />
+    <div class="install-text">
+      <b>Install MK Malik</b>
+      <span>Open it like a real app — full screen, right from your home screen</span>
+    </div>
+    <button class="btn btn--primary btn--sm" id="installBtn">Install</button>
+    <button class="icon-btn" id="installClose" aria-label="Dismiss">
+      <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>

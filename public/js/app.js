@@ -162,9 +162,66 @@ function wireChrome() {
   });
 }
 
+// ── installable app ────────────────────────────────────────────────────────
+function wireInstall() {
+  // Register the service worker so the app can be installed to the home
+  // screen. Voice still needs HTTPS, which any real deployment provides.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch((e) => {
+        console.warn('[pwa] service worker registration failed:', e.message);
+      });
+    });
+  }
+
+  const bar = $('#installBar');
+  const dismissed = (() => { try { return localStorage.getItem('mkmalik.install.dismissed') === '1'; } catch (_) { return false; } })();
+  let deferredPrompt = null;
+
+  const hide = () => { if (bar) bar.hidden = true; };
+
+  // Chrome / Edge / Android: the browser hands us the prompt to fire later.
+  window.addEventListener('beforeinstallprompt', (ev) => {
+    ev.preventDefault();
+    deferredPrompt = ev;
+    if (!dismissed) hide(); // ensure clean state before showing
+    if (!dismissed) setTimeout(() => { if (bar) bar.hidden = false; }, 600);
+  });
+
+  window.addEventListener('appinstalled', () => {
+    hide();
+    try { localStorage.setItem('mkmalik.install.dismissed', '1'); } catch (_) {}
+    toast('Installed — open MK Malik from your home screen 🎉', 'ok');
+  });
+
+  $('#installBtn')?.addEventListener('click', async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      hide();
+      if (outcome !== 'accepted') toast('You can install any time from the browser menu');
+      return;
+    }
+    // iOS Safari and others have no install API — explain the manual route.
+    const ua = navigator.userAgent;
+    if (/iPhone|iPad|iPod/i.test(ua)) {
+      toast('Tap the Share button, then "Add to Home Screen"', 'ok');
+    } else {
+      toast('Open the browser menu and choose "Install app" / "Add to Home screen"', 'ok');
+    }
+  });
+
+  $('#installClose')?.addEventListener('click', () => {
+    hide();
+    try { localStorage.setItem('mkmalik.install.dismissed', '1'); } catch (_) {}
+  });
+}
+
 // ── boot ───────────────────────────────────────────────────────────────────
 async function boot() {
   wireChrome();
+  wireInstall();
   mountExplore(App);
   mountMoments(App);
   mountChat(App);
@@ -174,6 +231,11 @@ async function boot() {
 
   const hash = location.hash.replace('#', '');
   if (screens.includes(hash)) go(hash);
+
+  // manifest shortcut: "Open a room"
+  if (new URLSearchParams(location.search).get('action') === 'create') {
+    setTimeout(() => App.events.emit('create-room'), 400);
+  }
 
   if (session.token) { await start(); return; }
 
