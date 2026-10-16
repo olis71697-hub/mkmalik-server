@@ -15,7 +15,6 @@ jobs:
           T: ${{ secrets.GITHUB_TOKEN }}
           R: ${{ github.repository }}
         run: |
-          exec > >(tee /tmp/probe.txt) 2>&1
           echo "---- GET /repos/$R ----"
           curl -sS -o /tmp/r1 -w '%{http_code}\n' -H "Authorization: Bearer $T" \
             -H "Accept: application/vnd.github+json" https://api.github.com/repos/$R
@@ -44,13 +43,3 @@ jobs:
             printf '%-70s' "$u"
             curl -sS -o /dev/null -w '%{http_code}\n' --max-time 15 "$u" || echo unreachable
           done
-
-      - name: publish probe output
-        if: always()
-        run: |
-          git config user.email "actions@github.com"
-          git config user.name "probe"
-          cp /tmp/probe.txt PROBE.txt 2>/dev/null || echo "no output" > PROBE.txt
-          git add PROBE.txt
-          git commit -q -m "debug: probe output" || true
-          git push -q || true
