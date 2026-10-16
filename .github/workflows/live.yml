@@ -1,25 +1,28 @@
 name: live public app
 
-# Hands the whole real app a public HTTPS URL:
+# Keeps the real backend reachable at a public HTTPS address.
 #
-#   • installs dependencies and boots the Node server (real rooms, real
-#     peer-to-peer voice, SQLite persistence)
-#   • opens a Cloudflare quick tunnel to it (falls back to localtunnel)
-#   • verifies the app answers *through the public hostname*
-#   • publishes the URL as a commit status (context "live-app") so it can be
-#     read back without scraping logs
+# The runner boots the actual Node server (real rooms, real peer-to-peer voice,
+# SQLite persistence) and exposes it through a Cloudflare quick tunnel, checks
+# that the app answers through the public hostname, then advertises the address
+# in backend.json so the installed app can find it.
 #
-# Restart it by touching live.trigger, or run it by hand from the Actions tab.
+# The app itself lives at a stable address and never changes; only the backend
+# moves. Stale runs are cancelled and a fresh one takes over.
 
 on:
   push:
     paths:
       - 'live.trigger'
+  schedule:
+    # GitHub schedules are best-effort and can be late; the job holds for
+    # ~5h50m, so a 6-hourly tick keeps coverage almost continuous.
+    - cron: '5 */6 * * *'
   workflow_dispatch:
 
 permissions:
-  contents: read
-  statuses: write
+  contents: write        # to publish backend.json
+  statuses: write        # to publish the current address
 
 concurrency:
   group: live-app
@@ -47,9 +50,10 @@ jobs:
           export PORT=8080
           export HOST=127.0.0.1
           export TRUST_PROXY=1
-          # everyone arrives via the tunnel, so per-IP limits would be global
+          # everyone arrives through the tunnel, so per-IP limits would be global
           export AUTH_ATTEMPTS_PER_MIN=600
           export ROOMS_PER_HOUR=600
+          export CORS_ORIGINS='*'
           mkdir -p data
 
           nohup node server/index.js > /tmp/app.log 2>&1 &
@@ -67,7 +71,7 @@ jobs:
         run: |
           URL=""
 
-          # ── Cloudflare quick tunnel ──────────────────────────────────────
+          # ── Cloudflare quick tunnel (no account, no interstitial) ─────────
           echo "::group::cloudflared"
           if curl -sSL --retry 3 --max-time 120 -o /tmp/cloudflared \
                https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64; then
@@ -83,19 +87,6 @@ jobs:
           tail -20 /tmp/tunnel.log 2>/dev/null || true
           echo "cloudflared url: ${URL:-none}"
           echo "::endgroup::"
-
-          # ── fallback: localtunnel ────────────────────────────────────────
-          if [ -z "$URL" ]; then
-            echo "::group::localtunnel"
-            npx --yes localtunnel --port 8080 > /tmp/lt.log 2>&1 &
-            for i in $(seq 1 30); do
-              URL=$(grep -oE 'https://[a-z0-9-]+\.loca\.lt' /tmp/lt.log 2>/dev/null | head -1 || true)
-              [ -n "$URL" ] && break
-              sleep 2
-            done
-            tail -20 /tmp/lt.log 2>/dev/null || true
-            echo "::endgroup::"
-          fi
 
           if [ -z "$URL" ]; then echo "!! no tunnel came up"; exit 1; fi
 
@@ -126,9 +117,46 @@ jobs:
           echo "sw.js:    $(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$URL/sw.js")"
           echo "app.js:   $(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$URL/js/app.js")"
           echo "icon:     $(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$URL/icons/icon-512.png")"
-          echo "rooms:    $(curl -s --max-time 20 "$URL/api/rooms" | head -c 160)"
+          echo "rooms:    $(curl -s --max-time 20 "$URL/api/rooms" | head -c 200)"
 
-      - name: publish the url
+      - name: advertise the address for the installed app
+        env:
+          T: ${{ secrets.GITHUB_TOKEN }}
+          R: ${{ github.repository }}
+          # fixed, so scheduled runs on the default branch still advertise
+          # the address where the installed app looks for it
+          BRANCH: arena/bdc831c9-mkmalik-server
+        run: |
+          URL=$(cat /tmp/url.txt)
+
+          # backend.json is read (cross-origin) by the app wherever it is
+          # installed from, so it always knows where the live server is.
+          python3 - "$URL" <<'PY'
+          import json, os, sys
+          url = sys.argv[1].rstrip('/')
+          doc = {
+              "backend": url,
+              "updated": __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+                          .replace(microsecond=0).isoformat(),
+          }
+          open('/tmp/backend.json', 'w').write(json.dumps(doc, indent=2) + "\n")
+          print(json.dumps(doc))
+          PY
+
+          cp /tmp/backend.json backend.json
+          git config user.email "actions@github.com"
+          git config user.name "live app"
+          for attempt in 1 2 3; do
+            git fetch -q origin "$BRANCH" || true
+            git reset -q --soft "origin/$BRANCH" 2>/dev/null || true
+            git add backend.json
+            if git diff --cached --quiet; then echo "backend.json unchanged"; break; fi
+            git commit -q -m "live: advertise the current backend address"
+            if git push -q origin "HEAD:$BRANCH"; then echo "published backend.json"; break; fi
+            echo "push attempt $attempt lost a race, retrying"; sleep 5
+          done
+
+      - name: publish the address as a commit status
         if: success()
         env:
           T: ${{ secrets.GITHUB_TOKEN }}
@@ -136,13 +164,16 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           python3 - <<'PYEOF' > /tmp/body.json
-          import json, os
+          import json
           url = open('/tmp/url.txt').read().strip()
           print(json.dumps({"state": "success", "context": "live-app",
                             "description": url[:140], "target_url": url}))
           PYEOF
-          cat /tmp/body.json; echo
-          curl -sS -X POST             -H "Authorization: Bearer $T"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$R/statuses/$SHA"             -d @/tmp/body.json | head -c 200; echo
+          curl -sS -X POST \
+            -H "Authorization: Bearer $T" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$R/statuses/$SHA" \
+            -d @/tmp/body.json | head -c 160; echo
 
       - name: keep serving
         run: |

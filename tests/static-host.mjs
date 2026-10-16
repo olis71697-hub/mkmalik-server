@@ -16,6 +16,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import { makeReporter } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -185,6 +186,32 @@ try {
   r.check('the local engine mirrors between tabs', /BroadcastChannel/.test(localSrc));
   r.check('the local engine answers seat:take', /case 'seat:take'/.test(localSrc));
   r.check('the local engine caps rooms at 10 seats', /seats.findIndex\(\(s\) => !s\)/.test(localSrc));
+  // ── 8. everything the app needs is actually committed ────────────────────
+  // A .gitignore rule once swallowed the icons, so the app was "installable"
+  // locally and broken on every real host. Catch that here, not in production.
+  r.section('assets are committed to the repository');
+  const repoRoot = path.join(here, '..');
+  const mustBeTracked = [
+    ...assetHops,
+    'manifest.webmanifest',
+    'icons/icon-192.png',
+    'icons/icon-512.png',
+    'icons/icon-maskable-512.png',
+    'sw.js',
+  ];
+  const untracked = [];
+  for (const rel of new Set(mustBeTracked)) {
+    const file = rel.replace(/^\.\//, '').split('?')[0];
+    if (!file || file === '') continue;
+    try {
+      execFileSync('git', ['ls-files', '--error-unmatch', 'public/' + file],
+        { cwd: repoRoot, stdio: 'pipe' });
+    } catch (_) {
+      untracked.push(file);
+    }
+  }
+  r.check('every asset the app needs is tracked by git', untracked.length === 0,
+    untracked.join(', ') || `${new Set(mustBeTracked).size} files tracked`);
 } finally {
   server.close();
 }

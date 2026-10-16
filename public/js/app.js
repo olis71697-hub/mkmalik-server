@@ -2,7 +2,7 @@
 
 import { $, $$, el, toast, bus, svg, ICON, haptic } from './util.js';
 import { api, session, ApiError } from './api.js';
-import { detectMode, isLocal, rel } from './runtime.js';
+import { detectMode, isLocal, rel, socketBase, getBackend } from './runtime.js';
 import { LocalSocket, startSimulation, resetLocal } from './local.js';
 import { mountExplore }   from './screens/explore.js';
 import { mountMoments }   from './screens/moments.js';
@@ -70,12 +70,17 @@ function loadSocketIo() {
   return new Promise((resolve) => {
     if (window.io) return resolve(true);
     const script = document.createElement('script');
-    script.src = rel('socket.io/socket.io.js');
+    script.src = (socketBase() || BASE_FOR_SOCKET_IO) + 'socket.io/socket.io.js';
     script.onload = () => resolve(!!window.io);
     script.onerror = () => resolve(false);
     document.head.append(script);
   });
 }
+
+// When the server is this same origin the client is served from the web root.
+const BASE_FOR_SOCKET_IO = (() => {
+  try { return new URL('/', location.href).href; } catch (_) { return rel(''); }
+})();
 
 async function connectSocket() {
   if (App.socket) { try { App.socket.disconnect(); } catch (_) {} App.socket = null; }
@@ -95,7 +100,8 @@ async function connectSocket() {
     return null;
   }
 
-  const socket = io({ auth: { token: session.token }, transports: ['websocket', 'polling'] });
+  const opts = { auth: { token: session.token }, transports: ['websocket', 'polling'] };
+  const socket = getBackend() ? io(getBackend(), opts) : io(opts);
 
   socket.on('connect', () => {
     App.socketReady = true;

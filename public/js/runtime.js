@@ -1,17 +1,17 @@
 /* ---------------------------------------------------------------------------
-   Runtime detection.
+   Runtime detection and backend discovery.
 
-   The app ships in one piece but can run two ways:
+   The app is plain static files, so it can be served from anywhere. What
+   differs is *where the live server is*:
 
-   • server mode — a Node backend answers /api and serves Socket.IO. This is
-     the real thing: real rooms, real people, real peer-to-peer voice.
+     • served by the Node server itself  → the backend is the same origin
+     • served from a static host         → the backend is found through a small
+                                           hint file, and the app talks to it
+                                           cross-origin
+     • no backend reachable at all       → the in-browser engine takes over
 
-   • local mode — no backend reachable (e.g. the app is hosted on a plain
-     static host). Everything runs in the browser from a seeded dataset so the
-     app is still fully explorable and installable.
-
-   Every path here is RELATIVE, so the app works both at a domain root and
-   under a sub-path like /mkmalik-server/.
+   Every path here is RELATIVE, so the app also works under a sub-path like
+   /gh/user/repo@main/public/ or /mkmalik-server/.
    --------------------------------------------------------------------------- */
 
 /** Directory the app was served from, with a trailing slash. */
@@ -23,43 +23,144 @@ export const BASE = (() => {
 /** Absolute-ish URL for a path inside the app (kept relative to the origin). */
 export const rel = (p) => BASE + String(p).replace(/^\/+/, '');
 
-export const API_BASE = rel('api');
+/**
+ * Where the live server advertises itself, so an app installed from a static
+ * host can still reach a real backend that moves around.
+ */
+export const BACKEND_HINT_URLS = [
+  'https://raw.githubusercontent.com/olis71697-hub/mkmalik-server/arena/bdc831c9-mkmalik-server/backend.json',
+  rel('backend.json'),
+];
+
+const sameOrigin = () => rel('api');
+
+// ── discovered state ───────────────────────────────────────────────────────
+let backendOrigin = '';           // '' → the app's own origin
 
 export const mode = {
   server: false,
   local: false,
+  crossOrigin: false,
   checked: false,
+  checkedAt: 0,
 };
 
-/**
- * Decide which mode we are in. A 200 from /api/health means a real backend.
- * Anything else — 404 from a static host, a network error, GitHub Pages
- * serving its own 404 page — means local mode.
- */
-export async function detectMode({ timeoutMs = 3500 } = {}) {
-  if (mode.checked) return mode;
+/** Origin of the live server, or '' when it is this same origin. */
+export const getBackend = () => backendOrigin;
 
+/** Base URL for REST calls. */
+export const apiBase = () => (backendOrigin ? backendOrigin + '/api' : sameOrigin());
+
+/** Base URL for the Socket.IO script and connection. '' → same origin. */
+export const socketBase = () => backendOrigin;
+
+export function setBackend(origin) {
+  backendOrigin = origin ? String(origin).replace(/\/+$/, '') : '';
+  mode.crossOrigin = !!backendOrigin;
+}
+
+const healthUrl = (origin) => (origin ? origin.replace(/\/+$/, '') + '/api/health' : rel('api/health'));
+
+/**
+ * Ask a candidate origin whether a real backend lives there.
+ * Returns the origin string on success, or '' if nothing answered.
+ */
+export async function probeBackend(origin, timeoutMs = 4000) {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    const res = await fetch(API_BASE + '/health', { signal: ctrl.signal });
+    const res = await fetch(healthUrl(origin), { signal: ctrl.signal, cache: 'no-store' });
     clearTimeout(timer);
+    if (!res.ok) return '';
 
-    if (res.ok) {
-      const data = await res.json().catch(() => null);
-      // A static host that happens to return HTML for /api/health must not
-      // be mistaken for our backend.
-      if (data && typeof data === 'object' && data.ok !== undefined) {
-        mode.server = true;
-        mode.demoAutoLogin = !!data.demoAutoLogin;
-      }
+    const data = await res.json().catch(() => null);
+    // A static host that answers /api/health with HTML must not fool us.
+    if (data && typeof data === 'object' && data.ok !== undefined) {
+      if (data.demoAutoLogin !== undefined) mode.demoAutoLogin = !!data.demoAutoLogin;
+      return origin || sameOrigin();
     }
-  } catch (_) {
-    /* no backend — fall through to local mode */
+  } catch (_) { /* nothing here */ }
+  return '';
+}
+
+/** Look for an advertised backend origin, then check that it answers. */
+async function discoverAdvertisedBackend() {
+  for (const hintUrl of BACKEND_HINT_URLS) {
+    let origin = '';
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 4000);
+      const res = await fetch(hintUrl, { signal: ctrl.signal, cache: 'no-store' });
+      clearTimeout(timer);
+      if (!res.ok) continue;
+
+      const text = await res.text();
+      let hint = null;
+      try { hint = JSON.parse(text); } catch (_) { hint = text.trim(); }
+      origin = (hint && typeof hint === 'object' ? hint.backend : hint) || '';
+      if (!origin || typeof origin !== 'string' || !/^https?:\/\//.test(origin)) continue;
+    } catch (_) {
+      continue;
+    }
+
+    if (await probeBackend(origin)) {
+      setBackend(origin);
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Decide where the app runs. Order:
+ *   1. an explicit ?backend= override (remembered afterwards)
+ *   2. a backend on this very origin — the app is being served by the server
+ *   3. an advertised backend (static host, moving backend)
+ *   4. nowhere → the in-browser engine
+ */
+export async function detectMode({ timeoutMs = 3500, force = false } = {}) {
+  if (mode.checked && !force) return mode;
+  mode.server = false;
+  mode.local = false;
+
+  let override = '';
+  try {
+    const param = new URLSearchParams(location.search).get('backend');
+    if (param) {
+      override = param;
+      localStorage.setItem('mkmalik.backend', param);
+    } else {
+      override = localStorage.getItem('mkmalik.backend') || '';
+    }
+  } catch (_) {}
+
+  if (override && await probeBackend(override, timeoutMs)) {
+    setBackend(override);
+    mode.server = true;
+    mode.checked = true;
+    mode.checkedAt = Date.now();
+    return mode;
   }
 
-  if (!mode.server) mode.local = true;
+  if (await probeBackend('', timeoutMs)) {
+    setBackend('');
+    mode.server = true;
+    mode.checked = true;
+    mode.checkedAt = Date.now();
+    return mode;
+  }
+
+  if (await discoverAdvertisedBackend()) {
+    mode.server = true;
+    mode.checked = true;
+    mode.checkedAt = Date.now();
+    return mode;
+  }
+
+  setBackend('');
+  mode.local = true;
   mode.checked = true;
+  mode.checkedAt = Date.now();
   return mode;
 }
 

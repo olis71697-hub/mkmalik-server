@@ -25,4 +25,5 @@ Thumbs.db
 # screenshots produced by the test harness
 /tmp/
 *.png
-!docs/**/*.png
+# ...but the app's own icons are real assets and must ship
+!public/icons/*.png

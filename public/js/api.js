@@ -4,7 +4,7 @@
  * the in-browser engine in local.js, so the same screens work either way.
  */
 
-import { API_BASE, isLocal } from './runtime.js';
+import { apiBase, isLocal } from './runtime.js';
 import { localApi } from './local.js';
 
 const TOKEN_KEY = 'mkmalik.token';
@@ -49,7 +49,7 @@ async function request(method, path, body) {
 
   let res;
   try {
-    res = await fetch(API_BASE + path, { method, headers, body: payload });
+    res = await fetch(apiBase() + path, { method, headers, body: payload });
   } catch (_) {
     throw new ApiError('Network unreachable — check your connection', 'network', 0);
   }
