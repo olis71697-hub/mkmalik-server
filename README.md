@@ -27,6 +27,64 @@ still free.
 
 ---
 
+## Put it online — get a link you can share
+
+A preview URL inside the sandbox only works while that session is alive. For a
+**permanent link anyone can open**, deploy the repo to a host. About two
+minutes, no server knowledge needed.
+
+### Render — one click
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/olis71697-hub/mkmalik-server)
+
+1. Click the button above, or open
+   `https://render.com/deploy?repo=https://github.com/olis71697-hub/mkmalik-server`
+2. Sign in with GitHub — Render reads `render.yaml` from this repo
+3. Press **Apply**. When the build finishes you get a URL like
+   `https://mkmalik.onrender.com`
+
+That link is **HTTPS**, which is what actually matters: browsers only hand over
+the microphone on `https://` or `localhost`. Share it and voice works.
+
+Free plan notes: the service sleeps after ~15 minutes idle (first hit takes
+~30s to wake), and its filesystem is ephemeral — rooms and accounts reset on
+redeploy. The server re-seeds itself, so the app always comes up populated.
+Attach a disk on a paid plan for permanent storage.
+
+### Railway
+
+1. <https://railway.com/new> → **Deploy from GitHub repo** → pick this repo
+2. Railway detects Node and uses `railway.json`
+3. Add variables `DEMO_AUTO_LOGIN=1` and `NODE_ENV=production`
+4. **Settings → Networking → Generate Domain**
+
+### Fly.io (keeps your data)
+
+Deploys from the bundled `Dockerfile` and attaches a volume, so accounts, rooms
+and uploads survive.
+
+```bash
+fly launch --no-deploy
+fly volumes create mkmalik_data --size 1
+fly secrets set DEMO_AUTO_LOGIN=1 JWT_SECRET=$(openssl rand -hex 48)
+fly deploy
+```
+
+### Your own server
+
+Any VPS with Node 22 works — see [Self-hosting](#self-hosting) for the systemd
+unit and nginx config.
+
+### Before opening it to the public
+
+| Setting | Why |
+|---|---|
+| `DEMO_AUTO_LOGIN=0` | Otherwise every visitor shares the demo account |
+| `JWT_SECRET=<random>` | Set it explicitly and never let it change |
+| `TURN_URL` + credentials | Voice across mobile networks needs a relay |
+
+---
+
 ## Quick start
 
 ```bash

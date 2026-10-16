@@ -1,0 +1,49 @@
+# Fly.io — the Dockerfile in this repo is the build.
+#
+#   fly launch --no-deploy        (accept the detected settings)
+#   fly volumes create mkmalik_data --size 1
+#   fly secrets set DEMO_AUTO_LOGIN=1
+#   fly deploy
+#
+# The volume keeps accounts, rooms and uploads across deploys — something
+# Render's free tier and Railway's ephemeral disks cannot do.
+
+app = "mkmalik"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  DEMO_AUTO_LOGIN = "1"
+  TRUST_PROXY = "1"
+  DATA_DIR = "/app/data"
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "15s"
+    method = "GET"
+    path = "/api/health"
+
+[[mounts]]
+  source = "mkmalik_data"
+  destination = "/app/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+# Optional: run your own TURN server so voice works behind carrier NAT.
+# [[services]]
+#   internal_port = 3478
+#   protocol = "udp"
