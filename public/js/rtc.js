@@ -14,6 +14,8 @@
 
 /* ICE servers come from the server (/api/ice-servers) so TURN credentials stay
    server-side. The defaults below are only a fallback if that call fails. */
+import { API_BASE } from './runtime.js';
+
 let ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
 ];
@@ -24,7 +26,7 @@ export async function loadIceServers() {
   if (iceLoaded) return iceLoaded;
   iceLoaded = (async () => {
     try {
-      const res = await fetch('/api/ice-servers');
+      const res = await fetch(API_BASE + '/ice-servers');
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const { iceServers } = await res.json();
       if (Array.isArray(iceServers) && iceServers.length) {

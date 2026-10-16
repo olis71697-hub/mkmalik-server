@@ -1000,3 +1000,34 @@ img { display: block; }
 
 /* the room screen sits above it when open */
 .room:not([hidden]) ~ .install-bar { display: none; }
+
+/* ── mode banner (static-host / demo mode) ───────────────────────────────── */
+.mode-banner {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 84px);
+  z-index: 60; display: flex; align-items: center; gap: 10px;
+  max-width: min(560px, calc(100vw - 28px));
+  padding: 11px 12px 11px 14px; border-radius: 14px;
+  background: rgba(18, 16, 30, .94); color: #f4f2ff;
+  border: 1px solid rgba(255, 255, 255, .12);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, .45);
+  font-size: 13px; line-height: 1.4;
+  backdrop-filter: blur(10px);
+  animation: modeBannerIn .3s ease-out both;
+}
+.mode-banner b { color: #ffb083; }
+.mode-dot {
+  flex: none; width: 9px; height: 9px; border-radius: 50%;
+  background: #ffb083; box-shadow: 0 0 0 4px rgba(255, 176, 131, .18);
+  animation: modePulse 2.2s ease-in-out infinite;
+}
+.mode-text { flex: 1 1 auto; }
+.mode-close {
+  flex: none; width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, .16); background: rgba(255, 255, 255, .07);
+  color: #fff; font-size: 17px; line-height: 1;
+}
+.mode-close:hover { background: rgba(255, 255, 255, .14); }
+@keyframes modeBannerIn { from { opacity: 0; transform: translate(-50%, 12px); } }
+@keyframes modePulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .mode-banner, .mode-dot { animation: none; } }

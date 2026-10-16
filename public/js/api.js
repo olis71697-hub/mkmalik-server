@@ -1,4 +1,11 @@
-/* REST client + session storage. */
+/* REST client + session storage.
+ *
+ * Talks to the Node backend when one is reachable; otherwise it falls back to
+ * the in-browser engine in local.js, so the same screens work either way.
+ */
+
+import { API_BASE, isLocal } from './runtime.js';
+import { localApi } from './local.js';
 
 const TOKEN_KEY = 'mkmalik.token';
 const USER_KEY = 'mkmalik.user';
@@ -31,7 +38,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request(method, path, body, opts = {}) {
+async function request(method, path, body) {
   const headers = {};
   if (token) headers.Authorization = 'Bearer ' + token;
   let payload = body;
@@ -42,7 +49,7 @@ async function request(method, path, body, opts = {}) {
 
   let res;
   try {
-    res = await fetch('/api' + path, { method, headers, body: payload });
+    res = await fetch(API_BASE + path, { method, headers, body: payload });
   } catch (_) {
     throw new ApiError('Network unreachable — check your connection', 'network', 0);
   }
@@ -59,55 +66,72 @@ async function request(method, path, body, opts = {}) {
   return data;
 }
 
-const get   = (p)       => request('GET', p);
-const post  = (p, b)    => request('POST', p, b);
-const patch = (p, b)    => request('PATCH', p, b);
-const del   = (p)       => request('DELETE', p);
+const get   = (p)    => request('GET', p);
+const post  = (p, b) => request('POST', p, b);
+const patch = (p, b) => request('PATCH', p, b);
+
+/** Route to the local engine when there is no backend behind us. */
+const local = (name, ...args) => {
+  const fn = localApi[name];
+  if (!fn) throw new ApiError(`local mode does not implement ${name}`, 'not_implemented', 501);
+  return fn.apply(localApi, args);
+};
 
 export const api = {
   // auth
-  register: (username, password, displayName) => post('/auth/register', { username, password, displayName }),
-  login:    (username, password)              => post('/auth/login', { username, password }),
-  demo:     ()                                => post('/auth/demo'),
-  me:       ()                                => get('/me'),
-  updateMe: (patchBody)                       => patch('/me', patchBody),
+  register: (username, password, displayName) =>
+    isLocal() ? local('demo') : post('/auth/register', { username, password, displayName }),
+  login: (username, password) =>
+    isLocal() ? local('demo') : post('/auth/login', { username, password }),
+  demo: () => (isLocal() ? local('demo') : post('/auth/demo')),
+
+  me: () => (isLocal() ? local('me') : get('/me')),
+  updateMe: (patchBody) => (isLocal() ? local('updateMe', patchBody) : patch('/me', patchBody)),
   uploadAvatar: (file) => {
+    if (isLocal()) return local('uploadAvatar', file);
     const fd = new FormData();
     fd.append('image', file);
     return request('POST', '/me/avatar', fd);
   },
-  dailyBonus: () => post('/me/daily-bonus'),
+  dailyBonus: () => (isLocal() ? local('dailyBonus') : post('/me/daily-bonus')),
 
   // explore
-  rooms:  (params = {}) => get('/rooms?' + new URLSearchParams(params)),
-  room:   (id)          => get('/rooms/' + id),
-  createRoom: (body)    => post('/rooms', body),
+  rooms: (params = {}) =>
+    isLocal() ? local('rooms', params) : get('/rooms?' + new URLSearchParams(params)),
+  room: (id) => (isLocal() ? local('room', id) : get('/rooms/' + id)),
+  createRoom: (body) => (isLocal() ? local('createRoom', body) : post('/rooms', body)),
 
   // people
-  search: (q)      => get('/search?q=' + encodeURIComponent(q)),
-  user:   (id)     => get('/users/' + id),
-  follow: (id)     => post(`/users/${id}/follow`),
-  userGifts: (id)  => get(`/users/${id}/gifts`),
+  search: (q) => (isLocal() ? local('search', q) : get('/search?q=' + encodeURIComponent(q))),
+  user: (id) => (isLocal() ? local('user', id) : get('/users/' + id)),
+  follow: (id) => (isLocal() ? local('follow', id) : post(`/users/${id}/follow`)),
+  userGifts: (id) => (isLocal() ? local('userGifts', id) : get(`/users/${id}/gifts`)),
 
   // economy
-  gifts:  ()        => get('/gifts'),
-  topup:  (amount, tok) => post('/wallet/topup', { amount, token: tok }),
+  gifts: () => (isLocal() ? local('gifts') : get('/gifts')),
+  topup: (amount, tok) => (isLocal() ? local('topup') : post('/wallet/topup', { amount, token: tok })),
 
   // moments
-  moments:        ()            => get('/moments'),
-  postMoment:     (formData)    => request('POST', '/moments', formData),
-  likeMoment:     (id)          => post(`/moments/${id}/like`),
-  momentComments: (id)          => get(`/moments/${id}/comments`),
-  addComment:     (id, body)    => post(`/moments/${id}/comments`, { body }),
+  moments: () => (isLocal() ? local('moments') : get('/moments')),
+  postMoment: (formData) =>
+    isLocal() ? local('postMoment', formData) : request('POST', '/moments', formData),
+  likeMoment: (id) => (isLocal() ? local('likeMoment', id) : post(`/moments/${id}/like`)),
+  momentComments: (id) => (isLocal() ? local('momentComments', id) : get(`/moments/${id}/comments`)),
+  addComment: (id, body) =>
+    isLocal() ? local('addComment', id, body) : post(`/moments/${id}/comments`, { body }),
 
   // chat
-  conversations: ()            => get('/chat/conversations'),
-  thread:        (userId, before) => get(`/chat/${userId}/messages` + (before ? `?before=${before}` : '')),
-  sendDM:        (userId, body)   => post(`/chat/${userId}/messages`, { body }),
+  conversations: () => (isLocal() ? local('conversations') : get('/chat/conversations')),
+  thread: (userId, before) =>
+    isLocal() ? local('thread', userId) : get(`/chat/${userId}/messages` + (before ? `?before=${before}` : '')),
+  sendDM: (userId, body) =>
+    isLocal() ? local('sendDM', userId, body) : post(`/chat/${userId}/messages`, { body }),
 
   // misc
-  notifications: () => get('/notifications'),
-  readNotifications: () => post('/notifications/read'),
-  leaderboard: (period = 'day') => get('/leaderboard?period=' + period),
-  health: () => get('/health'),
+  notifications: () => (isLocal() ? local('notifications') : get('/notifications')),
+  readNotifications: () => (isLocal() ? local('readNotifications') : post('/notifications/read')),
+  leaderboard: (period = 'day') =>
+    isLocal() ? local('leaderboard', period) : get('/leaderboard?period=' + period),
+  health: () => (isLocal() ? local('health') : get('/health')),
+  iceServers: () => (isLocal() ? local('iceServers') : get('/ice-servers')),
 };

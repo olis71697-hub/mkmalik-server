@@ -29,7 +29,11 @@ check('manifest is served as manifest+json',
   /manifest\+json/.test(manRes.headers.get('content-type') || ''), manRes.headers.get('content-type'));
 check('has name and short_name', !!man.name && !!man.short_name, `${man.short_name}`);
 check('display is standalone', man.display === 'standalone', man.display);
-check('start_url is in scope', man.start_url?.startsWith('/') && man.scope === '/', `${man.start_url} scope ${man.scope}`);
+// relative on purpose: the app is also published under a sub-path
+check('start_url is relative so a sub-path deploy works',
+  man.start_url?.startsWith('./') && man.scope === './', `${man.start_url} scope ${man.scope}`);
+check('manifest icons are relative', man.icons?.every((i) => !i.src.startsWith('/')),
+  (man.icons || []).map((i) => i.src).join(', '));
 check('theme_color matches the design', man.theme_color === '#ff5a1f', man.theme_color);
 
 const purposes = (man.icons || []).map((i) => i.purpose || 'any');
@@ -41,8 +45,9 @@ check('declares at least two shortcuts', (man.shortcuts || []).length >= 2,
   (man.shortcuts || []).map((s) => s.name).join(', '));
 
 // every declared icon must actually exist and be a real PNG
-for (const icon of man.icons || []) {
-  const res = await fetch(BASE + icon.src);
+const allIcons = [...(man.icons || []), ...(man.shortcuts || []).flatMap((sc) => sc.icons || [])];
+for (const icon of allIcons) {
+  const res = await fetch(new URL(icon.src, BASE + '/'));
   const buf = Buffer.from(await res.arrayBuffer());
   const isPng = buf.length > 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   const w = buf.length > 24 ? buf.readUInt32BE(16) : 0;
@@ -56,12 +61,16 @@ const swText = await swRes.text();
 check('service worker is served at /sw.js', swRes.ok);
 check('service worker never caches live room data',
   swText.includes('/api/') && swText.includes('/socket.io/') && swText.includes('isRealtime'));
-check('service worker has an offline shell fallback', swText.includes("caches.match('/index.html')"));
+check('service worker has an offline shell fallback',
+  swText.includes("caches.match('./index.html')") || swText.includes("caches.match('/index.html')"));
+check('service worker ignores api paths wherever they are mounted',
+  swText.includes("includes('/api/')"));
 check('service worker cleans up old versions', swText.includes('caches.keys()') && swText.includes('caches.delete'));
 
 // ── head tags ──────────────────────────────────────────────────────────────
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-check('links the manifest', /rel="manifest"\s+href="\/manifest\.webmanifest"/.test(html));
+check('links the manifest', /rel="manifest"\s+href="manifest\.webmanifest"/.test(html));
+check('index.html has no absolute asset paths', !/(?:href|src)="\//.test(html));
 check('has an apple-touch-icon for iOS', /rel="apple-touch-icon"/.test(html));
 check('declares apple-mobile-web-app-capable', /apple-mobile-web-app-capable"\s+content="yes"/.test(html));
 check('theme-color is the brand orange', /name="theme-color"\s+content="#ff5a1f"/.test(html));
@@ -69,7 +78,9 @@ check('has an in-app install prompt', /id="installBar"/.test(html) && /id="insta
 
 // ── the app registers the worker ───────────────────────────────────────────
 const appJs = fs.readFileSync(path.join(ROOT, 'js/app.js'), 'utf8');
-check('app registers the service worker', /serviceWorker\.register\('\/sw\.js'\)/.test(appJs));
+// registered through rel() so it resolves both at a domain root and under a sub-path
+check('app registers the service worker',
+  /serviceWorker\.register\(rel\('sw\.js'\)\)/.test(appJs), 'rel(\'sw.js\')');
 check('app handles beforeinstallprompt', appJs.includes('beforeinstallprompt'));
 check('app handles iOS (no install API)', appJs.includes('Add to Home Screen'));
 

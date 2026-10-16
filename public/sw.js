@@ -11,11 +11,12 @@ const VERSION = 'mkmalik-v1';
 const SHELL = `${VERSION}-shell`;
 const ASSETS = `${VERSION}-assets`;
 
-const SHELL_FILES = ['/', '/index.html', '/css/app.css', '/manifest.webmanifest'];
+// relative, so the app works at a domain root and under a sub-path
+const SHELL_FILES = ['./', './index.html', './css/app.css', './manifest.webmanifest'];
 const ASSET_FILES = [
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
-  '/icons/icon-maskable-512.png',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/icon-maskable-512.png',
 ];
 
 self.addEventListener('install', (event) => {
@@ -53,13 +54,16 @@ self.addEventListener('fetch', (event) => {
   // Live data and media always go to the network — never serve a stale room.
   if (isRealtime(url)) return;
 
+  // API paths are relative to the app, not the origin
+  if (url.pathname.includes('/api/') || url.pathname.includes('/socket.io/')) return;
+
   // Navigations: network first, fall back to the cached shell offline.
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
       try {
         return await fetch(request);
       } catch (_) {
-        const cached = await caches.match('/index.html');
+        const cached = await caches.match('./index.html') || await caches.match('./');
         return cached || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
       }
     })());

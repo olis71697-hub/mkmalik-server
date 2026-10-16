@@ -2,6 +2,8 @@
 
 import { $, $$, el, toast, bus, svg, ICON, haptic } from './util.js';
 import { api, session, ApiError } from './api.js';
+import { detectMode, isLocal, rel } from './runtime.js';
+import { LocalSocket, startSimulation, resetLocal } from './local.js';
 import { mountExplore }   from './screens/explore.js';
 import { mountMoments }   from './screens/moments.js';
 import { mountChat }      from './screens/chat.js';
@@ -16,6 +18,7 @@ export const App = {
   online: true,
   events: bus(),
   current: 'explore',
+  mode: 'server',        // 'server' = real backend, 'local' = in-browser engine
   wallet: { coins: 0, diamonds: 0 },
   socketReady: false,
 
@@ -41,9 +44,57 @@ export function go(name) {
   try { history.replaceState(null, '', '#' + name); } catch (_) {}
 }
 
+// ── local (static-host) mode ───────────────────────────────────────────────
+/** Explain up-front that this copy is running without a backend. */
+function showLocalBanner() {
+  try {
+    if (localStorage.getItem('mkmalik.local.banner') === 'off') return;
+  } catch (_) {}
+
+  const bar = el('div', { class: 'mode-banner', role: 'status' });
+  bar.innerHTML =
+    '<span class="mode-dot"></span>' +
+    '<span class="mode-text"><b>Demo mode</b> — rooms are simulated on this device. ' +
+    'For live voice with other people, open the hosted server version.</span>' +
+    '<button class="mode-close" type="button" aria-label="Dismiss">×</button>';
+  bar.querySelector('.mode-close').onclick = () => {
+    bar.remove();
+    try { localStorage.setItem('mkmalik.local.banner', 'off'); } catch (_) {}
+  };
+  document.body.append(bar);
+}
+
 // ── socket ─────────────────────────────────────────────────────────────────
-function connectSocket() {
-  if (App.socket) { App.socket.disconnect(); App.socket = null; }
+/** Socket.IO only exists on a Node host, so load it on demand. */
+function loadSocketIo() {
+  return new Promise((resolve) => {
+    if (window.io) return resolve(true);
+    const script = document.createElement('script');
+    script.src = rel('socket.io/socket.io.js');
+    script.onload = () => resolve(!!window.io);
+    script.onerror = () => resolve(false);
+    document.head.append(script);
+  });
+}
+
+async function connectSocket() {
+  if (App.socket) { try { App.socket.disconnect(); } catch (_) {} App.socket = null; }
+
+  // No backend: drive the UI from the in-browser engine instead.
+  if (isLocal()) {
+    App.socket = new LocalSocket();
+    App.socketReady = true;
+    startSimulation(App.socket);
+    App.events.emit('socket', { connected: true });
+    return App.socket;
+  }
+
+  const loaded = await loadSocketIo();
+  if (!loaded) {
+    toast('Realtime client unavailable — retrying', 'err');
+    return null;
+  }
+
   const socket = io({ auth: { token: session.token }, transports: ['websocket', 'polling'] });
 
   socket.on('connect', () => {
@@ -51,9 +102,9 @@ function connectSocket() {
     App.events.emit('socket', { connected: true });
     if (!App.online) { App.online = true; toast('Back online', 'ok'); }
   });
-  socket.on('disconnect', (reason) => {
+  socket.on('disconnect', () => {
     App.socketReady = false;
-    App.events.emit('socket', { connected: false, reason });
+    App.events.emit('socket', { connected: false });
   });
   socket.on('connect_error', (err) => {
     App.events.emit('socket-error', err.message);
@@ -78,7 +129,6 @@ function connectSocket() {
   const beat = setInterval(() => {
     if (App.socket?.connected) App.socket.emit('presence:ping');
   }, 20_000);
-
   socket.on('disconnect', () => clearInterval(beat));
 
   App.socket = socket;
@@ -124,7 +174,7 @@ async function start() {
     toast(e.message, 'err');
   }
 
-  connectSocket();
+  await connectSocket();
   App.events.emit('started', App);
 }
 
@@ -168,7 +218,7 @@ function wireInstall() {
   // screen. Voice still needs HTTPS, which any real deployment provides.
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch((e) => {
+      navigator.serviceWorker.register(rel('sw.js')).catch((e) => {
         console.warn('[pwa] service worker registration failed:', e.message);
       });
     });
@@ -236,6 +286,20 @@ async function boot() {
   if (new URLSearchParams(location.search).get('action') === 'create') {
     setTimeout(() => App.events.emit('create-room'), 400);
   }
+
+  // Which mode are we in — a real backend, or a static host?
+  await detectMode();
+
+  if (isLocal()) {
+    // Static host: no accounts to sign into, so go straight in.
+    App.mode = 'local';
+    document.documentElement.dataset.mode = 'local';
+    showLocalBanner();
+    await start();
+    return;
+  }
+
+  App.mode = 'server';
 
   if (session.token) { await start(); return; }
 
