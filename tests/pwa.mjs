@@ -1,5 +1,5 @@
 /*
- * MK Malik — integration test: PWA installability.
+ * Panda Voice — integration test: PWA installability.
  *
  * Checks the pieces a browser needs before it will offer to install the app:
  * a valid manifest, reachable icons, a registered service worker, and the
@@ -44,7 +44,7 @@ check('shortcuts stay inside the app',
   (man.shortcuts || []).map((s) => s.url).join(', '));
 check('manifest icons are relative', man.icons?.every((i) => !i.src.startsWith('/')),
   (man.icons || []).map((i) => i.src).join(', '));
-check('theme_color matches the design', man.theme_color === '#ff5a1f', man.theme_color);
+check('theme_color matches the design', man.theme_color === '#0a0f0d', man.theme_color);
 
 const purposes = (man.icons || []).map((i) => i.purpose || 'any');
 check('declares 192 and 512 icons',
@@ -83,7 +83,7 @@ check('links the manifest', /rel="manifest"\s+href="manifest\.json"/.test(html))
 check('index.html has no absolute asset paths', !/(?:href|src)="\//.test(html));
 check('has an apple-touch-icon for iOS', /rel="apple-touch-icon"/.test(html));
 check('declares apple-mobile-web-app-capable', /apple-mobile-web-app-capable"\s+content="yes"/.test(html));
-check('theme-color is the brand orange', /name="theme-color"\s+content="#ff5a1f"/.test(html));
+check('theme-color is the brand green-dark', /name="theme-color"\s+content="#0a0f0d"/.test(html));
 check('has an in-app install prompt', /id="installBar"/.test(html) && /id="installBtn"/.test(html));
 
 // ── the app registers the worker ───────────────────────────────────────────
@@ -118,7 +118,7 @@ window.localStorage.clear();
 await import(path.join(ROOT, 'js/app.js'));
 await new Promise((r) => setTimeout(r, 1500));
 
-const cards = window.document.querySelectorAll('#exploreGrid .card').length;
+const cards = window.document.querySelectorAll('#homeFeed .card').length;
 check('app still boots and renders with PWA wiring', cards > 0, `${cards} room cards`);
 check('install bar exists in the DOM', !!window.document.querySelector('#installBar'));
 

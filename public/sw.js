@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-   MK Malik service worker.
+   Panda Voice service worker.
 
    Deliberately conservative: this app is realtime and every request carries
    live data, so the worker never caches HTML or API responses. It exists to
@@ -7,12 +7,12 @@
    keep the icons fast.
    --------------------------------------------------------------------------- */
 
-const VERSION = 'mkmalik-v1';
+const VERSION = 'panda-v1';
 const SHELL = `${VERSION}-shell`;
 const ASSETS = `${VERSION}-assets`;
 
 // relative, so the app works at a domain root and under a sub-path
-const SHELL_FILES = ['./', './index.html', './css/app.css', './manifest.json'];
+const SHELL_FILES = ['./', './index.html', './css/panda.css', './manifest.json'];
 const ASSET_FILES = [
   './icons/icon-192.png',
   './icons/icon-512.png',

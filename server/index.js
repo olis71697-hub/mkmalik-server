@@ -147,7 +147,7 @@ server.listen(config.port, config.host, () => {
   const nets = os.networkInterfaces();
   const lan = Object.values(nets).flat().filter((n) => n && n.family === 'IPv4' && !n.internal).map((n) => n.address);
   console.log('');
-  console.log('  ███  MK MALIK — live voice rooms');
+  console.log('  🐼    PANDA VOICE — live group voice rooms');
   console.log(`  ├─ local     http://localhost:${config.port}`);
   for (const ip of lan) console.log(`  ├─ network   http://${ip}:${config.port}`);
   console.log(`  ├─ seats     10 per room`);

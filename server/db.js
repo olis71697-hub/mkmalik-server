@@ -8,7 +8,7 @@ const config = require('./config');
 fs.mkdirSync(config.dataDir, { recursive: true });
 fs.mkdirSync(config.uploadDir, { recursive: true });
 
-const db = new DatabaseSync(path.join(config.dataDir, 'mkmalik.db'));
+const db = new DatabaseSync(path.join(config.dataDir, 'panda-voice.db'));
 
 db.exec('PRAGMA journal_mode = WAL');
 db.exec('PRAGMA foreign_keys = ON');
@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS users (
   bio           TEXT DEFAULT '',
   gender        TEXT DEFAULT 'any',
   country       TEXT DEFAULT '',
+  phone         TEXT,
+  email         TEXT,
+  google_id     TEXT UNIQUE,
+  user_code     TEXT,
   level         INTEGER DEFAULT 1,
   xp            INTEGER DEFAULT 0,
   coins         INTEGER DEFAULT 0,
@@ -40,6 +44,21 @@ CREATE TABLE IF NOT EXISTS users (
   last_seen_at  INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_users_seen ON users(last_seen_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone) WHERE phone IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_code ON users(user_code) WHERE user_code IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS user_settings (
+  user_id     TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  language    TEXT DEFAULT 'bn',
+  theme       TEXT DEFAULT 'dark',
+  notify_follow   INTEGER DEFAULT 1,
+  notify_message  INTEGER DEFAULT 1,
+  notify_gift     INTEGER DEFAULT 1,
+  notify_invite   INTEGER DEFAULT 1,
+  dm_privacy      TEXT DEFAULT 'everyone',     -- everyone | following | nobody
+  show_online     INTEGER DEFAULT 1,
+  updated_at  INTEGER DEFAULT 0
+);
 
 CREATE TABLE IF NOT EXISTS follows (
   follower_id TEXT NOT NULL,
@@ -47,6 +66,25 @@ CREATE TABLE IF NOT EXISTS follows (
   created_at  INTEGER NOT NULL,
   PRIMARY KEY (follower_id, target_id)
 );
+
+CREATE TABLE IF NOT EXISTS blocks (
+  blocker_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (blocker_id, target_id)
+);
+
+CREATE TABLE IF NOT EXISTS reports (
+  id           TEXT PRIMARY KEY,
+  reporter_id  TEXT REFERENCES users(id) ON DELETE SET NULL,
+  target_type  TEXT NOT NULL,                 -- user | room
+  target_id    TEXT NOT NULL,
+  reason       TEXT NOT NULL,
+  note         TEXT DEFAULT '',
+  status       TEXT DEFAULT 'open',           -- open | reviewed | dismissed
+  created_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reports ON reports(status, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS rooms (
   id           TEXT PRIMARY KEY,
@@ -59,8 +97,10 @@ CREATE TABLE IF NOT EXISTS rooms (
   pin_code     TEXT,
   locked       INTEGER DEFAULT 0,
   is_private   INTEGER DEFAULT 0,
-  theme        TEXT DEFAULT 'gold',
+  theme        TEXT DEFAULT 'bamboo',
   tags         TEXT DEFAULT '[]',
+  rules        TEXT DEFAULT '',
+  chat_open    INTEGER DEFAULT 1,
   created_at   INTEGER NOT NULL,
   closed_at    INTEGER,
   ended_reason TEXT,
@@ -82,6 +122,34 @@ CREATE TABLE IF NOT EXISTS room_members (
   last_seen  INTEGER NOT NULL,
   PRIMARY KEY (room_id, user_id)
 );
+
+CREATE TABLE IF NOT EXISTS room_bans (
+  room_id   TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  by_id     TEXT,
+  reason    TEXT DEFAULT '',
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (room_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS room_mods (
+  room_id   TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  added_by  TEXT,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (room_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS mod_log (
+  id         TEXT PRIMARY KEY,
+  room_id    TEXT,
+  actor_id   TEXT,
+  target_id  TEXT,
+  action     TEXT NOT NULL,                   -- kick | ban | mute | mod_add | mod_remove | lock | unlock
+  note       TEXT DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_modlog ON mod_log(room_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS room_messages (
   id         TEXT PRIMARY KEY,
@@ -187,7 +255,62 @@ CREATE TABLE IF NOT EXISTS coin_ledger (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ledger ON coin_ledger(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS purchases (
+  id            TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  package_id    TEXT NOT NULL,
+  coins         INTEGER NOT NULL,
+  price         TEXT NOT NULL,
+  currency      TEXT DEFAULT 'BDT',
+  payment_ref   TEXT NOT NULL,
+  payment_method TEXT DEFAULT 'mock',
+  status        TEXT DEFAULT 'pending',        -- pending | success | failed | refunded
+  created_at    INTEGER NOT NULL,
+  UNIQUE (payment_ref)
+);
+
+CREATE TABLE IF NOT EXISTS otp_codes (
+  id         TEXT PRIMARY KEY,
+  phone      TEXT NOT NULL,
+  code       TEXT NOT NULL,
+  purpose    TEXT DEFAULT 'login',
+  attempts   INTEGER DEFAULT 0,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_otp ON otp_codes(phone, created_at DESC);
 `);
+
+// ---------------------------------------------------------------------------
+// Migrations for databases created by the previous ("mkmalik") schema
+// ---------------------------------------------------------------------------
+for (const col of [
+  ['users', 'phone', 'TEXT'],
+  ['users', 'email', 'TEXT'],
+  ['users', 'google_id', 'TEXT'],
+  ['users', 'user_code', 'TEXT'],
+  ['rooms', 'rules', "TEXT DEFAULT ''"],
+  ['rooms', 'chat_open', 'INTEGER DEFAULT 1'],
+]) {
+  try { db.exec(`ALTER TABLE ${col[0]} ADD COLUMN ${col[1]} ${col[2]}`); } catch (_) { /* already there */ }
+}
+try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone) WHERE phone IS NOT NULL`); } catch (_) {}
+try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_code ON users(user_code) WHERE user_code IS NOT NULL`); } catch (_) {}
+
+// Backfill short numeric user codes for pre-existing accounts.
+try {
+  const missing = all('SELECT id FROM users WHERE user_code IS NULL');
+  for (const u of missing) {
+    let code = String(100000 + Math.floor(Math.random() * 900000));
+    for (let tries = 0; tries < 20; tries++) {
+      const taken = get('SELECT 1 FROM users WHERE user_code = ?', code);
+      if (!taken) break;
+      code = String(100000 + Math.floor(Math.random() * 900000));
+    }
+    run('UPDATE users SET user_code = ? WHERE id = ?', code, u.id);
+  }
+} catch (_) { /* non-fatal */ }
 
 // ---------------------------------------------------------------------------
 // Thin query helpers

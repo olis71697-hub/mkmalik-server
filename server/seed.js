@@ -1,10 +1,10 @@
 'use strict';
 
 /**
- * Seed — creates the demo cast, gift catalog and a set of live rooms so the
- * Explore grid is never empty on a fresh deployment.
+ * Seed — creates the Panda Voice demo cast, gift catalog and a set of live
+ * rooms so the Home grid is never empty on a fresh deployment.
  *   node server/seed.js          (skips if data already exists)
- *   node server/seed.js --force  (wipes rooms/moments and re-seeds)
+ *   server/seed.js --force  (wipes rooms/moments and re-seeds)
  */
 
 const bcrypt = require('bcryptjs');
@@ -15,79 +15,82 @@ const state = require('./state');
 
 const force = process.argv.includes('--force');
 
+/** [username, display name, gender, country, level, vip, isAdmin] */
 const PEOPLE = [
-  ['mkmalik',  'MK Malik',    'male',   'IN', 42, 1, 1],
-  ['aylin',    'Aylin ✨',    'female', 'TR', 31, 0, 0],
-  ['rafi',     'Rafi Ahmed',  'male',   'BD', 27, 0, 0],
-  ['sofia',    'Sofia Rose',  'female', 'ES', 24, 0, 0],
-  ['kenji',    'Kenji',       'male',   'JP', 22, 0, 0],
-  ['mira',     'Mira Khan',   'female', 'BD', 19, 0, 0],
-  ['dani',     'Dani_777',    'male',   'AE', 17, 0, 0],
-  ['luna',     'Luna 🎤',      'female', 'PH', 15, 0, 0],
-  ['argon',    'Argon',       'male',   'DE', 13, 0, 0],
-  ['priya',    'Priya S.',    'female', 'IN', 12, 0, 0],
-  ['tariq',    'Tariq',       'male',   'PK', 10, 0, 0],
-  ['hana',     'Hana Bloom',  'female', 'KR', 9,  0, 0],
-  ['zayn',     'Zayn',        'male',   'EG', 8,  0, 0],
-  ['elif',     'Elif',        'female', 'TR', 7,  0, 0],
-  ['noah',     'Noah W.',     'male',   'US', 6,  0, 0],
-  ['asha',     'Asha Rani',   'female', 'IN', 5,  0, 0],
-  ['ilyas',    'Ilyas',       'male',   'BD', 4,  0, 0],
-  ['nora',     'Nora',        'female', 'SE', 3,  0, 0],
-  ['bilal',    'Bilal',       'male',   'SA', 2,  0, 0],
-  ['chen',     'Chen Yu',     'male',   'CN', 1,  0, 0],
+  ['panda',    'Panda Host 🐼', 'male',   'BD', 42, 1, 1],
+  ['nusrat',   'Nusrat ✨',     'female', 'BD', 31, 0, 0],
+  ['rafi',     'Rafi Ahmed',    'male',   'BD', 27, 0, 0],
+  ['tuli',     'Tuli Roy',      'female', 'IN', 24, 1, 0],
+  ['kenji',    'Kenji',         'male',   'JP', 22, 0, 0],
+  ['mira',     'Mira Khan',     'female', 'BD', 19, 0, 0],
+  ['dani',     'Dani_777',      'male',   'AE', 17, 0, 0],
+  ['luna',     'Luna 🎤',       'female', 'PH', 15, 0, 0],
+  ['argon',    'Argon',         'male',   'DE', 13, 0, 0],
+  ['priya',    'Priya S.',      'female', 'IN', 12, 0, 0],
+  ['tariq',    'Tariq',         'male',   'PK', 10, 0, 0],
+  ['hana',     'Hana Bloom',    'female', 'KR', 9,  0, 0],
+  ['zayn',     'Zayn',          'male',   'EG', 8,  0, 0],
+  ['elif',     'Elif',          'female', 'TR', 7,  0, 0],
+  ['noah',     'Noah W.',       'male',   'US', 6,  0, 0],
+  ['asha',     'Asha Rani',     'female', 'IN', 5,  0, 0],
+  ['ilyas',    'Ilyas',         'male',   'BD', 4,  0, 0],
+  ['nora',     'Nora',          'female', 'SE', 3,  0, 0],
+  ['bilal',    'Bilal',         'male',   'SA', 2,  0, 0],
+  ['chen',     'Chen Yu',       'male',   'CN', 1,  0, 0],
 ];
 
+/** [id, name, emoji, price, anim, sort] — the Panda Voice gift wall. */
 const GIFTS = [
-  ['rose',      'Rose',        '🌹', 10,   'float', 1],
-  ['heart',     'Heart',       '❤️', 20,   'float', 2],
-  ['kiss',      'Kiss',        '💋', 50,   'float', 3],
-  ['lollipop',  'Lollipop',    '🍭', 88,   'float', 4],
-  ['coffee',    'Coffee',      '☕', 120,  'float', 5],
-  ['beer',      'Cheers',      '🍺', 180,  'float', 6],
-  ['cake',      'Birthday Cake','🎂', 299, 'float', 7],
-  ['teddy',     'Teddy',       '🧸', 520,  'float', 8],
-  ['rocket',    'Rocket',      '🚀', 888,  'launch', 9],
-  ['crown',     'Golden Crown','👑', 1888, 'shine', 10],
-  ['castle',    'Dream Castle','🏰', 3888, 'shine', 11],
-  ['sports',    'Super Car',   '🏎️', 8888, 'launch', 12],
-  ['galaxy',    'Galaxy',      '🌌', 18888,'shine', 13],
-  ['dragon',    'Dragon',      '🐉', 32888,'epic', 14],
+  ['heart',     'Heart',        '❤️', 10,   'float', 1],
+  ['rose',      'Rose',         '🌹', 20,   'float', 2],
+  ['flower',    'Flower',       '🌸', 50,   'float', 3],
+  ['star',      'Star',         '⭐', 88,   'float', 4],
+  ['love',      'Love',         '😍', 120,  'float', 5],
+  ['coffee',    'Coffee',       '☕', 180,  'float', 6],
+  ['teddy',     'Teddy Bear',   '🧸', 299,  'float', 7],
+  ['cake',      'Birthday Cake','🎂', 520,  'float', 8],
+  ['lion',      'Lion',         '🦁', 888,  'launch',9],
+  ['crown',     'Golden Crown', '👑', 1888, 'shine', 10],
+  ['car',       'Super Car',    '🏎️', 3888, 'launch',11],
+  ['castle',    'Dream Castle', '🏰', 8888, 'shine', 12],
+  ['dragon',    'Dragon',       '🐉', 18888,'epic',  13],
+  ['galaxy',    'Galaxy',       '🌌', 32888,'epic',  14],
 ];
 
+/** [title, category, topic, theme, tags] */
 const ROOMS = [
-  ['Share a happy thing😊',        'party',     'Tell us one good thing about today',  'gold',   ['newbie','friendly']],
-  ['Welcome to our party🎉',       'party',     'Chill vibes only, grab a seat',        'rose',   ['party','chill']],
-  ['I like singing a lot.',        'sing',      'Karaoke night — request a song',       'violet', ['music','karaoke']],
-  ['Enjoy the party!!!',           'party',     'Non-stop music & games',               'sunset', ['games','music']],
-  ['Midnight Music Room 🌙',       'music',     'Slow songs and deep talks',            'night',  ['lofi','calm']],
-  ['Study with me 📚',             'study',     'Pomodoro 25/5 — mute & focus',         'mint',   ['focus','silent']],
-  ['Squad up — ranked lobby',      'gaming',    'Duo queue, call your role',            'ocean',  ['valorant','fps']],
-  ['Birthday Bash 🎂',             'birthday',  'Celebrating Mira today!',              'gold',   ['cake','surprise']],
-  ['Stand-up & jokes 😂',          'comedy',    'Open mic comedy hour',                 'sunset', ['funny','openmic']],
-  ['Dance floor 💃',               'dance',     'Drop your favourite track',            'rose',   ['edm','bolly']],
-  ['Late Night Talk ☕',           'chat',      'Random talks, zero judgement',         'violet', ['talk','late']],
-  ['Morning Broadcast 📻',         'broadcast', 'Daily news and shoutouts',             'ocean',  ['news','daily']],
-  ['Adda time — Bangla 🇧🇩',      'chat',      'Bengali adda, sobe asho',              'mint',   ['bangla','adda']],
-  ['Chill out zone 🫧',           'party',     'Music, mics open for all',             'night',  ['openmic','music']],
+  ['🐼 Panda Adda — সবাই আসো',        'chat',       'বাংলা আড্ডা, ১০টা মাইক খোলা',           'bamboo', ['bangla','adda']],
+  ['Welcome to our party 🎉',           'party',      'Chill vibes only, grab a seat',        'gold',   ['party','chill']],
+  ['আমি গান গাইতে ভালোবাসি 🎤',        'sing',       'Karaoke night — request a song',       'violet', ['music','karaoke']],
+  ['Enjoy the party!!!',                'party',      'Non-stop music & games',               'sunset', ['games','music']],
+  ['Midnight Music Room 🌙',            'music',      'Slow songs and deep talks',            'night',  ['lofi','calm']],
+  ['Study with me 📚',                  'study',      'Pomodoro 25/5 — mute & focus',         'mint',   ['focus','silent']],
+  ['Squad up — ranked lobby',           'gaming',     'Duo queue, call your role',            'ocean',  ['valorant','fps']],
+  ['Birthday Bash 🎂',                  'birthday',   'Celebrating Mira today!',              'gold',   ['cake','surprise']],
+  ['Stand-up & jokes 😂',               'comedy',     'Open mic comedy hour',                 'sunset', ['funny','openmic']],
+  ['Dance floor 💃',                    'dance',      'Drop your favourite track',            'rose',   ['edm','bolly']],
+  ['Late Night Talk ☕',                'chat',       'Random talks, zero judgement',         'violet', ['talk','late']],
+  ['Morning Broadcast 📻',              'broadcast',  'Daily news and shoutouts',             'ocean',  ['news','daily']],
+  ['নতুনদের রুম — Newbies 🐣',        'chat',       'প্রথমবার? চলে এসো, শিখে নাও',           'bamboo', ['newbie','friendly']],
+  ['Chill out zone 🫧',                 'party',      'Music, mics open for all',             'night',  ['openmic','music']],
 ];
 
 const TOPICS_CHAT = [
-  'Kemon acho sobai? 😄', 'Welcome everyone 🎧', 'Play something romantic 🎵',
-  'Mic ta open kore dao please 🙏', 'Adaab from Dhaka ✨', 'So sad the room is closing later',
-  'Follow me, I follow back 💫', 'Who is singing next?', 'Send a gift to the host 🎁',
-  'Anyone from Kolkata?', 'This song is 🔥', 'Good night all, love you 💙',
+  'কেমন আছো সবাই? 😄', 'সবাইকে স্বাগতম 🎧', 'একটা রোমান্টিক গান বাজাও 🎵',
+  'মাইকটা একটু খুলে দাও ভাই 🙏', 'ঢাকা থেকে কেউ আছে? ✨', 'আজকের রুমটা দারুণ যাচ্ছে',
+  'Follow me, I follow back 💫', 'পরের গান কে গাইবে?', 'হোস্টকে গিফট পাঠাও 🎁',
+  'কলকাতা থেকে কেউ? 🇮🇳', 'গানটা তো আগুন 🔥', 'শুভরাত্রি সবাইকে, ভালোবাসা 💚',
 ];
 
 const MOMENT_TEXTS = [
-  'First time hosting a full room — 10 mics taken in 4 minutes 🥳',
-  'New mic setup is finally clean 🎙️ the sound is unbeatable',
-  'Late night room was something else last night. Thank you all 💙',
-  '3000 coins of roses in one song — you people are unreal 🌹',
-  'Daily bonus claimed. Who wants to sing? 🎤',
-  'Study room is at 24 people and completely silent 😂 perfect',
-  'Chai + rainy evening + slow songs = perfect room ☕🌧️',
-  'Just crossed level 30! Celebrating in my room tonight 🎂',
+  'প্রথমবার ফুল রুম হোস্ট করলাম — ৪ মিনিটে ১০টা মাইক শেষ 🥳',
+  'নতুন মাইক সেটআপ ফাইনালি রেডি 🎙️ সাউন্ড অসাধারণ',
+  'গতকালের লেট নাইট রুমটা অন্যরকম ছিল। সবাইকে ধন্যবাদ 💚',
+  'একটা গানে ৩০০০ কয়েনের রোজ — তোমরা অবিশ্বাস্য 🌹',
+  'ডেইলি বোনাস নিলাম। কে গাইবে? 🎤',
+  'স্টাডি রুমে ২৪ জন এবং পুরো নীরব 😂 পারফেক্ট',
+  'চা + বৃষ্টির সন্ধ্যা + স্লো গান = পারফেক্ট রুম ☕🌧️',
+  'লেভেল ৩০ পার করলাম! আজ রাতে আমার রুমে সেলিব্রেশন 🎂',
 ];
 
 const rnd = (a) => a[Math.floor(Math.random() * a.length)];
@@ -105,27 +108,31 @@ function seed() {
     for (const r of state.liveRooms()) state.closeRoom(r.id, 'reset');
     db.exec(`DELETE FROM room_messages; DELETE FROM gift_events; DELETE FROM moment_likes;
              DELETE FROM moment_comments; DELETE FROM moments; DELETE FROM messages;
-             DELETE FROM conversations; DELETE FROM notifications; DELETE FROM coin_ledger;`);
-    db.exec(`DELETE FROM room_members; DELETE FROM rooms; DELETE FROM follows; DELETE FROM users;`);
+             DELETE FROM conversations; DELETE FROM notifications; DELETE FROM coin_ledger;
+             DELETE FROM mod_log; DELETE FROM room_bans; DELETE FROM room_mods; DELETE FROM reports;
+             DELETE FROM purchases; DELETE FROM otp_codes;`);
+    db.exec(`DELETE FROM room_members; DELETE FROM rooms; DELETE FROM follows; DELETE FROM blocks; DELETE FROM user_settings; DELETE FROM users;`);
   }
 
   // ---- people -------------------------------------------------------------
   const ids = {};
   const insertUser = db.prepare(
     `INSERT INTO users (id, username, display_name, password_hash, avatar, bio, gender, country,
-                        level, xp, coins, diamonds, vip, role, is_bot, created_at, last_seen_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+                        level, xp, coins, diamonds, vip, role, is_bot, user_code, created_at, last_seen_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   const pw = bcrypt.hashSync('demo1234', 10);
   PEOPLE.forEach(([username, name, gender, country, level, vip, isAdmin], i) => {
     const id = uid();
     ids[username] = id;
     const role = isAdmin ? 'admin' : (level >= 15 ? 'host' : 'user');
+    const code = String(100001 + i);
     insertUser.run(
-      id, username, name, pw, svgAvatar(name, username), `Hi, I'm ${name}. Talk to me in my room! 🎙️`,
+      id, username, name, pw, svgAvatar(name, username), `হাই, আমি ${name} — আমার রুমে কথা বলো! 🐼🎙️`,
       gender, country, level, level * 120, 2000 + i * 350, i * 90, vip, role, 1,
-      ago(60 * 24 * (PEOPLE.length - i)), Date.now() - i * 60_000);
+      code, ago(60 * 24 * (PEOPLE.length - i)), Date.now() - i * 60_000);
+    db.prepare('INSERT OR REPLACE INTO user_settings (user_id, language, theme, updated_at) VALUES (?,?,?,?)')
+      .run(id, 'bn', 'dark', Date.now());
   });
-  db.exec('DELETE FROM users WHERE is_bot = 1 AND id NOT IN (SELECT id FROM users)');
 
   // ---- gifts --------------------------------------------------------------
   const insGift = db.prepare('INSERT OR REPLACE INTO gift_catalog (id, name, emoji, price, anim, sort) VALUES (?,?,?,?,?,?)');
@@ -140,12 +147,13 @@ function seed() {
 
   // ---- live rooms ---------------------------------------------------------
   const insRoom = db.prepare(
-    `INSERT INTO rooms (id, owner_id, title, topic, category, cover, language, theme, tags,
+    `INSERT INTO rooms (id, owner_id, title, topic, category, cover, language, theme, tags, rules,
                         created_at, peak_users, total_joined, gift_coins)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   const insMember = db.prepare(
     `INSERT OR REPLACE INTO room_members (room_id, user_id, seat, is_muted, is_locked, hand_up, joined_at, last_seen)
      VALUES (?,?,?,?,?,?,?,?)`);
+  const RULES = '১. সবার সাথে সম্মানের সাথে কথা বলুন  ২. একসাথে কথা না বলে পালা করে বলুন  ৩. স্প্যাম করবেন না 🐼';
 
   const roomIds = [];
   ROOMS.forEach(([title, category, topic, theme, tags], ri) => {
@@ -153,8 +161,9 @@ function seed() {
     const id = uid();
     roomIds.push(id);
     const hostId = ids[hostUsername];
-    insRoom.run(id, hostId, title, topic, category, '', category === 'chat' ? 'bangla' : 'any',
-      theme, JSON.stringify(tags), ago(5 + ri * 7), 0, 0, ri * 850);
+    const lang = /[\u0980-\u09FF]/.test(title) || category === 'chat' ? 'bn' : 'any';
+    insRoom.run(id, hostId, title, topic, category, '', lang, theme, JSON.stringify(tags), RULES,
+      ago(5 + ri * 7), 0, 0, ri * 850);
 
     // fill some seats + listeners so the grid shows real numbers
     const speakers = 1 + Math.floor(Math.random() * 5);      // 1..5 on mic
@@ -171,6 +180,10 @@ function seed() {
       insMember.run(id, ids[g], null, 1, 0, Math.random() < 0.2 ? 1 : 0, ago(20 - (i % 18)), Date.now());
     }
 
+    // a moderator for the host
+    db.prepare('INSERT OR IGNORE INTO room_mods (room_id, user_id, added_by, created_at) VALUES (?,?,?,?)')
+      .run(id, ids[guests[speakers + 1] || guests[0]], hostId, ago(35));
+
     // recent chat
     for (let i = 0; i < 6; i++) {
       const speaker = rnd(names);
@@ -178,10 +191,20 @@ function seed() {
         uid(), id, ids[speaker], 'text', rnd(TOPICS_CHAT), '{}', ago(60 - i * 6));
     }
     run(`INSERT INTO room_messages (id, room_id, user_id, kind, body, meta, created_at) VALUES (?,?,?,?,?,?,?)`,
-      uid(), id, null, 'system', 'The host opened the mic seats 🎙️', '{}', ago(58));
+      uid(), id, null, 'system', 'হোস্ট মাইক সিটগুলো খুলে দিল 🎙️', '{}', ago(58));
   });
 
-  // ---- moments ------------------------------------------------------------
+  // ---- gift history (so profiles + leaderboards look alive) ----------------
+  const insGiftEvent = db.prepare(
+    `INSERT INTO gift_events (id, room_id, from_id, to_id, gift_id, qty, coins, created_at) VALUES (?,?,?,?,?,?,?,?)`);
+  for (let i = 0; i < 60; i++) {
+    const from = rnd(names), to = rnd(names);
+    if (from === to) continue;
+    const g = rnd(GIFTS);
+    insGiftEvent.run(uid(), rnd(roomIds), ids[from], ids[to], g[0], 1, g[3], ago(Math.random() * 60 * 24 * 3));
+  }
+
+  // ---- moments --------------------------------------------------------------
   const insMoment = db.prepare(
     `INSERT INTO moments (id, user_id, body, media, likes, comments, created_at) VALUES (?,?,?,?,?,?,?)`);
   PEOPLE.slice(0, 14).forEach(([username], i) => {
@@ -189,19 +212,19 @@ function seed() {
       Math.floor(Math.random() * 240), Math.floor(Math.random() * 30), ago(12 + i * 47));
   });
 
-  // ---- a couple of direct conversations for the logged-in demo user -------
-  const me = ids.mkmalik;
-  ['aylin', 'rafi', 'sofia', 'mira'].forEach((u, i) => {
+  // ---- a couple of direct conversations for the demo user -------------------
+  const me = ids.panda;
+  ['nusrat', 'rafi', 'tuli', 'mira'].forEach((u, i) => {
     const other = ids[u];
     const a = [me, other].sort();
     const convId = a.join('_');
     run('INSERT OR IGNORE INTO conversations (id, a_id, b_id, last_body, last_at) VALUES (?,?,?,?,?)',
       convId, a[0], a[1], '', 0);
     const lines = [
-      'Hey! Are you hosting tonight? 🎤',
-      'Yes! Room opens at 9 — come early for a mic seat 😄',
-      'That party last night was amazing 🔥',
-      'Join my room, we have 3 mics free right now',
+      'হাই! আজ রাতে রুম করবে? 🎤',
+      'হ্যাঁ! ৯টায় রুম খুলব — আগে এসো, সিট পেয়ে যাবে 😄',
+      'গতকালের পার্টিটা অসাধারণ ছিল 🔥',
+      'আমার রুমে আসো, ৩টা মাইক খালি আছে',
     ];
     for (let k = 0; k < 3; k++) {
       const fromMe = k % 2 === 0;
@@ -222,7 +245,7 @@ function seed() {
     moments: get('SELECT COUNT(*) c FROM moments').c,
   };
   console.log('[seed] done', counts);
-  console.log('[seed] demo login →  username: mkmalik   password: demo1234');
+  console.log('[seed] demo login →  username: panda   password: demo1234');
   console.log('[seed] every seeded account uses password: demo1234');
 }
 

@@ -1,5 +1,5 @@
 /*
- * MK Malik — integration test.
+ * Panda Voice — integration test.
  * Start the server first (npm start), then:  npm test
  * Override the target with BASE_URL=http://host:port
  */
@@ -123,8 +123,11 @@ check('gift broadcast for the animation', fx?.gift?.emoji === '🌹' && fx?.qty 
 
 const afterA = (await apiFetch('/api/me', { token: A.token })).data.user.coins;
 const afterB = (await apiFetch('/api/me', { token: B.token })).data.user.diamonds;
-check('sender coins deducted', beforeA - afterA === 50, `${beforeA} → ${afterA}`);
-check('receiver diamonds credited', afterB - beforeB === 50, `${beforeB} → ${afterB}`);
+const { gifts: catalog } = (await apiFetch('/api/gifts')).data;
+const rosePrice = catalog.find((g) => g.id === 'rose')?.price || 10;
+const spent = rosePrice * 5;
+check('sender coins deducted', beforeA - afterA === spent, `${beforeA} → ${afterA} (rose=${rosePrice})`);
+check('receiver diamonds credited', afterB - beforeB === spent, `${beforeB} → ${afterB}`);
 
 // client may not mint coins
 const cheat = await emitAck(sockA, 'gift:send', { giftId: 'dragon', toUserId: B.user.id, qty: 99 });

@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 // Load .env (if present) before anything reads process.env
 // ---------------------------------------------------------------------------
+
 try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
 
 const path = require('node:path');
@@ -25,6 +26,13 @@ const config = {
   port: num(process.env.PORT, 8080),
   host: process.env.HOST || '0.0.0.0',
 
+  // Brand -----------------------------------------------------------------
+  brand: {
+    name: 'Panda Voice',
+    short: 'Panda',
+    tagline: '১০ সিটের লাইভ ভয়েস রুম 🐼',
+  },
+
   // Public base URL used when generating absolute links (invites, share cards).
   publicUrl: (process.env.PUBLIC_URL || '').replace(/\/+$/, ''),
 
@@ -40,7 +48,7 @@ const config = {
       fs.writeFileSync(p, s, { mode: 0o600 });
       return s;
     } catch (_) {
-      return 'mkmalik-dev-secret-' + ROOT;
+      return 'panda-voice-dev-secret-' + ROOT;
     }
   })(),
   jwtTtl: process.env.JWT_TTL || '30d',
@@ -52,7 +60,7 @@ const config = {
 
   // Voice rooms -----------------------------------------------------------
   room: {
-    micSeats: 10,            // exactly 10 mic seats, like Saada
+    micSeats: 10,            // exactly 10 mic seats per room
     maxListeners: num(process.env.MAX_LISTENERS, 60),
     emptyRoomTtlMs: 1000 * 60 * 5,   // room closes 5 min after the last person leaves
     maxRoomsPerUser: 1,
@@ -74,10 +82,42 @@ const config = {
     giftsPer10s: 8,
     followPerMin: 30,
     momentsPerHour: 12,
+    reactionsPer10s: 12,
     maxBioLen: 200,
     maxMsgLen: 500,
     maxRoomTitleLen: 60,
     minPasswordLen: 6,
+  },
+
+  // Phone OTP login -------------------------------------------------------
+  // With no SMS gateway configured the code is returned in the API response
+  // (and printed in the server log) so the flow is fully testable. Set
+  // SMS_API_URL (+ SMS_API_KEY) to deliver codes for real.
+  otp: {
+    ttlMs: 5 * 60 * 1000,
+    length: 6,
+    maxPerHour: num(process.env.OTP_PER_HOUR, 12),
+    smsApiUrl: process.env.SMS_API_URL || '',
+    smsApiKey: process.env.SMS_API_KEY || '',
+    smsFrom: process.env.SMS_FROM || 'PandaVoice',
+  },
+
+  // Google Sign-In --------------------------------------------------------
+  // Set GOOGLE_CLIENT_ID to the "Web client" OAuth ID from Google Cloud
+  // Console. Until then the endpoint answers 503 with setup instructions.
+  googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+
+  // Wallet / coin purchases ------------------------------------------------
+  // 'mock'  → simulated gateway: any payment ref like "MOCK-xxxx" is accepted
+  //           once, credited once (idempotent), and clearly labelled in the UI.
+  // 'live'  → point PURCHASE_VERIFY_URL at your real gateway's verification
+  //           endpoint (SSLCommerz/bKash/Stripe etc.); the server then refuses
+  //           to credit coins unless the gateway confirms the payment.
+  payments: {
+    mode: process.env.PAYMENTS_MODE || 'mock',
+    verifyUrl: process.env.PURCHASE_VERIFY_URL || '',
+    verifyKey: process.env.PURCHASE_VERIFY_KEY || '',
+    currency: process.env.PAYMENT_CURRENCY || 'BDT',
   },
 
   corsOrigins: (process.env.CORS_ORIGINS || '*').split(',').map((s) => s.trim()).filter(Boolean),

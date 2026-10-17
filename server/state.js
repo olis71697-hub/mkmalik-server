@@ -23,7 +23,7 @@ const rooms = new Map();
 const GUEST_TTL_MS = 45_000; // a member with no heartbeat for this long is dropped
 
 function dbRoomToState(row) {
-  return {
+  const room = {
     id: row.id,
     ownerId: row.owner_id,
     title: row.title,
@@ -33,8 +33,10 @@ function dbRoomToState(row) {
     language: row.language || 'any',
     locked: !!row.locked,
     isPrivate: !!row.is_private,
-    theme: row.theme || 'gold',
+    theme: row.theme || 'bamboo',
     tags: safeJson(row.tags, []),
+    rules: row.rules || '',
+    chatOpen: row.chat_open === null ? true : !!row.chat_open,
     createdAt: row.created_at,
     pinCode: row.pin_code || null,
     peakUsers: row.peak_users || 0,
@@ -44,10 +46,15 @@ function dbRoomToState(row) {
     members: new Map(),     // userId -> member
     seats: new Array(SEATS).fill(null), // index -> userId
     lockedSeats: new Set(), // seats the host locked while empty
+    mods: new Set(),        // moderators (host is implicit)
+    bans: new Set(),        // banned user ids
     messages: [],           // recent ring buffer
     closedAt: null,
     emptySince: null,
   };
+  for (const m of all('SELECT user_id FROM room_mods WHERE room_id = ?', row.id)) room.mods.add(m.user_id);
+  for (const b of all('SELECT user_id FROM room_bans WHERE room_id = ?', row.id)) room.bans.add(b.user_id);
+  return room;
 }
 
 function loadRoom(roomId) {
@@ -79,6 +86,7 @@ function memberFromRow(m) {
 const publicUser = (u) => u ? {
   id: u.id, username: u.username, displayName: u.display_name,
   avatar: u.avatar, level: u.level, vip: !!u.vip, role: u.role,
+  userCode: u.user_code || null,
   bio: u.bio || '', isBot: !!u.is_bot, coins: u.coins, diamonds: u.diamonds,
 } : null;
 
@@ -97,6 +105,8 @@ function snapshot(room, viewerId) {
     category: room.category, cover: room.cover, language: room.language,
     locked: room.locked, isPrivate: room.isPrivate, theme: room.theme,
     tags: room.tags, createdAt: room.createdAt, pinRequired: !!room.pinCode,
+    rules: room.rules || '', chatOpen: room.chatOpen !== false,
+    mods: [...room.mods],
     seatCount: SEATS,
     seats: room.seats.map((id) => {
       if (!id) return null;
@@ -110,6 +120,7 @@ function snapshot(room, viewerId) {
     giftCoins: room.giftCoins,
     viewer: viewerId && room.members.has(viewerId) ? publicMember(room.members.get(viewerId)) : null,
     isOwner: viewerId === room.ownerId,
+    isMod: viewerId === room.ownerId || (viewerId && room.mods.has(viewerId)),
   };
 }
 
@@ -176,10 +187,13 @@ function join(roomId, user, opts = {}) {
   const room = loadRoom(roomId);
   if (!room) throw notFound('Room not found or already closed');
 
+  if (room.bans.has(user.id) && user.role !== 'admin') {
+    throw forbidden('আপনি এই রুম থেকে ব্যান হয়ে আছেন', 'room_banned');
+  }
   if (room.isPrivate && room.pinCode && opts.pin !== room.pinCode && user.id !== room.ownerId && user.role !== 'admin') {
     throw forbidden('Wrong room password');
   }
-  if (room.locked && user.id !== room.ownerId && user.role !== 'admin') {
+  if (room.locked && user.id !== room.ownerId && user.role !== 'admin' && !room.mods.has(user.id)) {
     throw forbidden('This room is locked by the host');
   }
 
@@ -274,26 +288,105 @@ function setMute(roomId, user, muted) {
   return { room, member };
 }
 
+/** host, appointed moderators and admins can manage a room */
+function canModerate(room, user) {
+  return user && (user.id === room.ownerId || user.role === 'admin' || room.mods.has(user.id));
+}
+
 function kickFromSeat(roomId, actor, targetId, ban) {
   const room = loadRoom(roomId);
   if (!room) throw notFound('Room is closed');
-  if (actor.id !== room.ownerId && actor.role !== 'admin') throw forbidden('Only the host can manage seats');
+  if (!canModerate(room, actor)) throw forbidden('শুধু হোস্ট বা মডারেটর এটি করতে পারে');
   const target = room.members.get(targetId);
   if (!target) throw notFound('That user is not in the room');
   if (target.userId === room.ownerId) throw badRequest('The host cannot be removed');
+  if (room.mods.has(target.userId) && actor.id !== room.ownerId && actor.role !== 'admin') {
+    throw forbidden('একজন মডারেটর অন্য মডারেটরকে সরাতে পারবেন না');
+  }
   if (target.seat === null) throw badRequest('That user is not on a mic seat');
   room.seats[target.seat] = null;
   target.seat = null;
   target.isMuted = true;
   run('UPDATE room_members SET seat=NULL, is_muted=1 WHERE room_id=? AND user_id=?', room.id, targetId);
-  if (ban) kick(roomId, actor, targetId, 'Removed by host');
+  if (ban) {
+    room.bans.add(targetId);
+    run('INSERT OR IGNORE INTO room_bans (room_id, user_id, by_id, reason, created_at) VALUES (?,?,?,?,?)',
+      room.id, targetId, actor.id, 'banned by moderator', Date.now());
+  }
   return { room, target };
+}
+
+/** Host/moderator force-mutes another seated user. */
+function setMuteOther(roomId, actor, targetId, muted) {
+  const room = loadRoom(roomId);
+  if (!room) throw notFound('Room is closed');
+  if (!canModerate(room, actor)) throw forbidden('শুধু হোস্ট বা মডারেটর এটি করতে পারে');
+  const target = room.members.get(targetId);
+  if (!target) throw notFound('That user is not in the room');
+  if (target.seat === null) throw badRequest('That user is not on a mic seat');
+  if (target.userId === room.ownerId && actor.id !== room.ownerId) throw forbidden('হোস্টকে মিউট করা যাবে না');
+  target.isMuted = !!muted;
+  run('UPDATE room_members SET is_muted=? WHERE room_id=? AND user_id=?', target.isMuted ? 1 : 0, room.id, targetId);
+  return { room, target };
+}
+
+/** Appoint / dismiss a room moderator (host only). */
+function setModerator(roomId, actor, targetId, isMod) {
+  const room = loadRoom(roomId);
+  if (!room) throw notFound('Room is closed');
+  if (actor.id !== room.ownerId && actor.role !== 'admin') throw forbidden('শুধু হোস্ট মডারেটর নিয়োগ করতে পারে');
+  if (targetId === room.ownerId) throw badRequest('হোস্ট নিজেই মডারেটর');
+  const target = room.members.get(targetId);
+  if (!target) throw notFound('That user is not in the room');
+  if (isMod) {
+    room.mods.add(targetId);
+    run('INSERT OR IGNORE INTO room_mods (room_id, user_id, added_by, created_at) VALUES (?,?,?,?)',
+      room.id, targetId, actor.id, Date.now());
+  } else {
+    room.mods.delete(targetId);
+    run('DELETE FROM room_mods WHERE room_id=? AND user_id=?', room.id, targetId);
+  }
+  return { room, target, isMod: !!isMod };
+}
+
+function banFromRoom(roomId, actor, targetId, unban) {
+  const room = loadRoom(roomId);
+  if (!room) throw notFound('Room is closed');
+  if (!canModerate(room, actor)) throw forbidden('শুধু হোস্ট বা মডারেটর এটি করতে পারে');
+  if (targetId === room.ownerId) throw badRequest('হোস্টকে ব্যান করা যাবে না');
+  if (unban) {
+    room.bans.delete(targetId);
+    run('DELETE FROM room_bans WHERE room_id=? AND user_id=?', room.id, targetId);
+  } else {
+    room.bans.add(targetId);
+    run('INSERT OR IGNORE INTO room_bans (room_id, user_id, by_id, reason, created_at) VALUES (?,?,?,?,?)',
+      room.id, targetId, actor.id, 'banned', Date.now());
+  }
+  return { room, targetId, banned: !unban };
+}
+
+function logModeration(roomId, actorId, targetId, action, note = '') {
+  run('INSERT INTO mod_log (id, room_id, actor_id, target_id, action, note, created_at) VALUES (?,?,?,?,?,?,?)',
+    uid(), roomId, actorId || null, targetId || null, action, note, Date.now());
+}
+
+function modLog(roomId) {
+  return all(
+    `SELECT l.*, a.display_name actor_name, t.display_name target_name
+     FROM mod_log l
+     LEFT JOIN users a ON a.id = l.actor_id
+     LEFT JOIN users t ON t.id = l.target_id
+     WHERE l.room_id = ? ORDER BY l.created_at DESC LIMIT 50`, roomId)
+    .map((r) => ({
+      id: r.id, action: r.action, note: r.note, createdAt: r.created_at,
+      actor: r.actor_name || 'সিস্টেম', target: r.target_name || null,
+    }));
 }
 
 function lockSeat(roomId, actor, index, locked, forUserId) {
   const room = loadRoom(roomId);
   if (!room) throw notFound('Room is closed');
-  if (actor.id !== room.ownerId && actor.role !== 'admin') throw forbidden('Only the host can lock seats');
+  if (!canModerate(room, actor)) throw forbidden('শুধু হোস্ট বা মডারেটর এটি করতে পারে');
   const i = Number(index);
   if (!Number.isInteger(i) || i < 0 || i >= SEATS) throw badRequest('Seat out of range');
   const occupantId = room.seats[i];
@@ -488,7 +581,8 @@ function stats() {
 
 module.exports = {
   SEATS, publicUser, publicMember, snapshot, card, join, takeSeat, leaveSeat,
-  setMute, kickFromSeat, lockSeat, raiseHand, setSpeaking, heartbeat, leave,
+  setMute, setMuteOther, kickFromSeat, lockSeat, raiseHand, setSpeaking, heartbeat, leave,
   closeRoom, transferHost, sweep, loadRoom, getRoom, liveRooms, roomCount, stats,
-  isOfficialRoom, respawnOfficialMembers, GUEST_TTL_MS,
+  isOfficialRoom, respawnOfficialMembers, canModerate, setModerator, banFromRoom,
+  logModeration, modLog, GUEST_TTL_MS,
 };

@@ -1,5 +1,5 @@
 /*
- * MK Malik — integration test: first load.
+ * Panda Voice — integration test: first load.
  *
  * The boot splash must never be the last thing on screen. A visitor with no
  * saved session should either land straight in the app (demo auto-login) or get
@@ -63,19 +63,19 @@ check('boot splash is dismissed', boot.style.display === 'none');
 check('app shell is visible', !app.hidden);
 
 if (demoAutoLogin) {
-  const cards = window.document.querySelectorAll('#exploreGrid .card').length;
-  const tabs = [...window.document.querySelectorAll('#exploreTabs .tab')].map((t) => t.textContent);
+  const cards = window.document.querySelectorAll('#homeFeed .card').length;
+  const tabs = [...window.document.querySelectorAll('#homeTabs button')].map((t) => t.textContent);
   const nav = [...window.document.querySelectorAll('.tabbar-item span')].map((s) => s.textContent);
-  check('visitor lands on the Explore design without signing in', cards > 0, `${cards} room cards`);
+  check('visitor lands on the Home feed without signing in', cards > 0, `${cards} room cards`);
   check('design chrome is present',
-    tabs.join('/') === 'Related/Hot/Explore' && nav.join('/') === 'Explore/Moments/Chat/Profile',
+    nav.join('/') === 'হোম/ডিসকভার/মেসেজ/ওয়ালেট/প্রোফাইল' && tabs.length >= 3,
     `${tabs.join(' · ')} | ${nav.join(' · ')}`);
 } else {
   const auth = $('#authScreen');
-  check('sign-in screen is shown', !!auth);
+  check('sign-in screen is shown', !!auth && !auth.hidden);
   if (auth) {
     const fields = [...auth.querySelectorAll('.field label')].map((l) => l.textContent);
-    check('sign-in form is usable', fields.join('/') === 'Username/Password', fields.join(' · '));
+    check('sign-in form is usable', fields.includes('ইউজারনেম') && fields.includes('পাসওয়ার্ড'), fields.join(' · '));
   }
 }
 

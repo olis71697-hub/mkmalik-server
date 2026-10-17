@@ -77,6 +77,7 @@ export async function probeBackend(origin, timeoutMs = 4000) {
     // A static host that answers /api/health with HTML must not fool us.
     if (data && typeof data === 'object' && data.ok !== undefined) {
       if (data.demoAutoLogin !== undefined) mode.demoAutoLogin = !!data.demoAutoLogin;
+      if (data.features) mode.features = data.features;
       return origin || sameOrigin();
     }
   } catch (_) { /* nothing here */ }
@@ -128,9 +129,9 @@ export async function detectMode({ timeoutMs = 3500, force = false } = {}) {
     const param = new URLSearchParams(location.search).get('backend');
     if (param) {
       override = param;
-      localStorage.setItem('mkmalik.backend', param);
+      localStorage.setItem('panda.backend', param);
     } else {
-      override = localStorage.getItem('mkmalik.backend') || '';
+      override = localStorage.getItem('panda.backend') || '';
     }
   } catch (_) {}
 

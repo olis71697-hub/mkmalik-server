@@ -9,12 +9,12 @@ function sign(user) {
   return jwt.sign(
     { uid: user.id, un: user.username, r: user.role },
     config.jwtSecret,
-    { expiresIn: config.jwtTtl, issuer: 'mkmalik' }
+    { expiresIn: config.jwtTtl, issuer: 'panda-voice' }
   );
 }
 
 function verify(token) {
-  return jwt.verify(token, config.jwtSecret, { issuer: 'mkmalik' });
+  return jwt.verify(token, config.jwtSecret, { issuer: 'panda-voice', ignoreExpiration: false });
 }
 
 function userFromToken(token) {

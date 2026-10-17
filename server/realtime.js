@@ -16,9 +16,23 @@ const { all, get, run, now } = require('./db');
 const { uid, limiter, badRequest, forbidden, notFound, cleanText } = require('./util');
 const { userFromToken } = require('./auth');
 
+/** Lazy require — api.js also requires this module, so a top-level require
+ *  would create a cycle and hand back a half-built module. */
+function awardXpSafe(io, userId, amount) {
+  try {
+    const { awardXp } = require('./api');
+    if (typeof awardXp === 'function') return awardXp(io, userId, amount);
+  } catch (_) { /* never let XP break the room */ }
+  return null;
+}
+
+/** Emoji allowed as live room reactions (spam-guarded whitelist). */
+const REACTION_EMOJIS = ['❤️', '😂', '😍', '🔥', '👏', '👍', '😎', '😭', '🥰', '🎉', '👋', '💯'];
+
 const msgLimiter = limiter('chat', config.limits.msgsPer10s, 10_000);
 const giftLimiter = limiter('gift', config.limits.giftsPer10s, 10_000);
 const roomCreateLimiter = limiter('room-create', config.limits.roomsCreatedPerHour, 3600_000);
+const reactionLimiter = limiter('reaction', config.limits.reactionsPer10s, 10_000);
 
 const GUEST_TTL_MS = 45_000;
 
@@ -100,9 +114,27 @@ function mount(io) {
 
     connected.add(socket.user.id);
     socket.join(userChannel(socket.user.id));
+    const wasOffline = !io.sockets.sockets ? true : ![...io.sockets.sockets.values()].some(
+      (s) => s.id !== socket.id && s.user?.id === socket.user.id);
     run('UPDATE users SET last_seen_at = ? WHERE id = ?', Date.now(), socket.user.id);
 
     socket.emit('ready', { user: state.publicUser(me()), serverTime: Date.now(), seats: state.SEATS });
+
+    // followers who asked for it hear that I came online
+    if (wasOffline) {
+      const meRow = me();
+      if (meRow && !meRow.is_bot) {
+        const followers = all(
+          `SELECT f.follower_id FROM follows f JOIN user_settings s ON s.user_id = f.follower_id
+           WHERE f.target_id = ? AND s.notify_follow = 1 LIMIT 200`, socket.user.id);
+        for (const f of followers) {
+          emitUser(f.follower_id, 'presence:online', {
+            userId: socket.user.id, displayName: meRow.display_name, avatar: meRow.avatar,
+          });
+        }
+      }
+      io.emit('presence:online', { userId: socket.user.id });
+    }
 
     // ---- presence: everyone in my rooms gets "online" -----------------------
     socket.on('presence:ping', (ack) => {
@@ -168,7 +200,8 @@ function mount(io) {
         if (!roomId) throw forbidden('Join a room first');
         const { room, member, seat } = state.takeSeat(roomId, me(), payload?.index);
         socket.data.seat = seat;
-        systemMessage(room, `${member.user.display_name} took mic seat ${seat + 1}`, 'system', { seat });
+        awardXpSafe(io, member.userId, 10);
+        systemMessage(room, `${member.user.display_name} সিট ${seat + 1} নিল 🎙️`, 'system', { seat });
         emitTo(roomId, 'room:seat', { userId: member.userId, seat, isMuted: true, member: state.publicMember(member) });
         broadcastState(room);
         syncPeers(room);
@@ -211,9 +244,10 @@ function mount(io) {
         const roomId = socket.data.roomId;
         if (!roomId) throw forbidden('Join a room first');
         const { room, target } = state.kickFromSeat(roomId, me(), payload?.userId, !!payload?.ban);
+        state.logModeration(roomId, socket.user.id, target.userId, payload?.ban ? 'ban' : 'kick');
         emitTo(roomId, 'room:seat', { userId: target.userId, seat: null, member: state.publicMember(target), kicked: true });
         emitUser(target.userId, 'seat:revoked', { roomId, reason: payload?.ban ? 'banned' : 'kicked' });
-        systemMessage(room, `${target.user.display_name} was removed from the mic`);
+        systemMessage(room, `${target.user.display_name}-কে মাইক থেকে সরানো হয়েছে`);
         broadcastState(room);
         syncPeers(room);
         ack?.({ ok: true });
@@ -225,9 +259,122 @@ function mount(io) {
         const roomId = socket.data.roomId;
         if (!roomId) throw forbidden('Join a room first');
         const { room, seat, locked, occupantId } = state.lockSeat(roomId, me(), payload?.index, !!payload?.locked);
+        state.logModeration(roomId, socket.user.id, occupantId || null, locked ? 'lock' : 'unlock', `seat ${seat + 1}`);
         emitTo(roomId, 'room:seatlock', { seat, locked, occupantId });
         broadcastState(room);
         ack?.({ ok: true, seat, locked });
+      } catch (e) { ack?.({ ok: false, error: e.message, code: e.code }); }
+    });
+
+    // ---- host/moderator: invite a listener to a specific seat ---------------
+    socket.on('seat:invite', (payload, ack) => {
+      try {
+        const roomId = socket.data.roomId;
+        if (!roomId) throw forbidden('Join a room first');
+        const room = state.loadRoom(roomId);
+        const user = me();
+        if (!state.canModerate(room, user)) throw forbidden('শুধু হোস্ট বা মডারেটর এটি করতে পারে');
+        const targetId = String(payload?.userId || '');
+        const target = room.members.get(targetId);
+        if (!target) throw notFound('That user is not in the room');
+        if (target.seat !== null) throw badRequest('Already on a mic seat');
+        let seat = payload?.seat;
+        if (seat === undefined || seat === null) seat = room.seats.findIndex((s) => !s);
+        if (seat < 0 || seat >= state.SEATS || room.seats[seat]) throw badRequest('That seat is not free');
+        emitUser(targetId, 'seat:invited', {
+          roomId, seat, byName: user.display_name, at: Date.now(),
+        });
+        ack?.({ ok: true, seat });
+      } catch (e) { ack?.({ ok: false, error: e.message, code: e.code }); }
+    });
+
+    // ---- host/moderator: force-mute another seated user ---------------------
+    socket.on('seat:mute_other', (payload, ack) => {
+      try {
+        const roomId = socket.data.roomId;
+        if (!roomId) throw forbidden('Join a room first');
+        const { room, target } = state.setMuteOther(roomId, me(), String(payload?.userId || ''), !!payload?.muted);
+        state.logModeration(roomId, socket.user.id, target.userId, 'mute', payload?.muted ? 'muted' : 'unmuted');
+        emitTo(roomId, 'room:seat', {
+          userId: target.userId, seat: target.seat, isMuted: target.isMuted,
+          member: state.publicMember(target), forcedBy: socket.user.id,
+        });
+        emitUser(target.userId, 'seat:force_muted', { roomId, muted: target.isMuted, by: socket.user.id });
+        systemMessage(room, target.isMuted
+          ? `🔇 হোস্ট ${target.user.display_name}-কে মিউট করেছে`
+          : `🔊 ${target.user.display_name} এখন আনমিউট`, 'system');
+        broadcastState(room);
+        ack?.({ ok: true });
+      } catch (e) { ack?.({ ok: false, error: e.message, code: e.code }); }
+    });
+
+    // ---- host: appoint / dismiss moderators ---------------------------------
+    socket.on('mod:set', (payload, ack) => {
+      try {
+        const roomId = socket.data.roomId;
+        if (!roomId) throw forbidden('Join a room first');
+        const { room, target, isMod } = state.setModerator(roomId, me(), String(payload?.userId || ''), !!payload?.isMod);
+        state.logModeration(roomId, socket.user.id, target.userId, isMod ? 'mod_add' : 'mod_remove');
+        systemMessage(room, isMod
+          ? `🛡️ ${target.user.display_name} এখন এই রুমের মডারেটর`
+          : `${target.user.display_name} আর মডারেটর নন`, 'system');
+        broadcastState(room);
+        ack?.({ ok: true, isMod });
+      } catch (e) { ack?.({ ok: false, error: e.message, code: e.code }); }
+    });
+
+    // ---- host/moderator: ban / unban from the room --------------------------
+    socket.on('room:ban', (payload, ack) => {
+      try {
+        const roomId = socket.data.roomId;
+        if (!roomId) throw forbidden('Join a room first');
+        const { room, targetId, banned } = state.banFromRoom(roomId, me(), String(payload?.userId || ''), !!payload?.unban);
+        if (banned) {
+          state.logModeration(roomId, socket.user.id, targetId, 'ban');
+          const target = room.members.get(targetId);
+          if (target) {
+            if (target.seat !== null) room.seats[target.seat] = null;
+            room.members.delete(targetId);
+            run('DELETE FROM room_members WHERE room_id=? AND user_id=?', roomId, targetId);
+            emitUser(targetId, 'room:closed', { roomId, reason: 'banned' });
+            systemMessage(room, `⛔ ${target.user?.display_name || 'একজন ইউজার'}-কে রুম থেকে ব্যান করা হয়েছে`);
+          }
+        } else {
+          state.logModeration(roomId, socket.user.id, targetId, 'unban');
+          systemMessage(room, 'একজন ইউজারের ব্যান তুলে নেওয়া হয়েছে');
+        }
+        broadcastState(room);
+        syncPeers(room);
+        ack?.({ ok: true, banned });
+      } catch (e) { ack?.({ ok: false, error: e.message, code: e.code }); }
+    });
+
+    // ---- moderation log (host/mod) ------------------------------------------
+    socket.on('room:modlog', (_p, ack) => {
+      try {
+        const roomId = socket.data.roomId;
+        if (!roomId) throw forbidden('Join a room first');
+        const room = state.loadRoom(roomId);
+        const user = me();
+        if (!state.canModerate(room, user)) throw forbidden('শুধু হোস্ট বা মডারেটর দেখতে পারে');
+        ack?.({ ok: true, log: state.modLog(roomId) });
+      } catch (e) { ack?.({ ok: false, error: e.message, code: e.code }); }
+    });
+
+    // ---- emoji reactions (rate-limited whitelist) ---------------------------
+    socket.on('reaction:send', (payload, ack) => {
+      try {
+        const roomId = socket.data.roomId;
+        if (!roomId) throw forbidden('Join a room first');
+        reactionLimiter.hit(socket.user.id);
+        const emoji = String(payload?.emoji || '');
+        if (!REACTION_EMOJIS.includes(emoji)) throw badRequest('এই ইমোজিটি অনুমোদিত নয়');
+        emitTo(roomId, 'room:reaction', {
+          userId: socket.user.id,
+          displayName: me().display_name,
+          emoji, at: Date.now(),
+        });
+        ack?.({ ok: true });
       } catch (e) { ack?.({ ok: false, error: e.message, code: e.code }); }
     });
 
@@ -256,12 +403,18 @@ function mount(io) {
         if (p.title !== undefined) room.title = cleanText(p.title, config.limits.maxRoomTitleLen, 'title') || room.title;
         if (p.topic !== undefined) room.topic = cleanText(p.topic, 120, 'topic');
         if (p.category !== undefined && /^[a-z]{2,16}$/.test(p.category)) room.category = p.category;
+        if (p.rules !== undefined) room.rules = cleanText(p.rules, 300, 'rules');
+        if (p.chatOpen !== undefined) {
+          room.chatOpen = !!p.chatOpen;
+          systemMessage(room, room.chatOpen ? '💬 চ্যাট আবার চালু' : '🔇 হোস্ট চ্যাট বন্ধ করেছে');
+        }
+        if (p.theme !== undefined && /^[a-z]{2,12}$/.test(p.theme)) room.theme = p.theme;
         if (p.locked !== undefined) {
           room.locked = !!p.locked;
           systemMessage(room, room.locked ? '🔒 The host locked the room' : '🔓 The room is open again');
         }
-        run('UPDATE rooms SET title=?, topic=?, category=?, locked=? WHERE id=?',
-          room.title, room.topic, room.category, room.locked ? 1 : 0, room.id);
+        run('UPDATE rooms SET title=?, topic=?, category=?, locked=?, rules=?, chat_open=?, theme=? WHERE id=?',
+          room.title, room.topic, room.category, room.locked ? 1 : 0, room.rules, room.chatOpen === false ? 0 : 1, room.theme, room.id);
         broadcastState(room);
         ack?.({ ok: true, room: state.snapshot(room, user.id) });
       } catch (e) { ack?.({ ok: false, error: e.message, code: e.code }); }
@@ -291,12 +444,16 @@ function mount(io) {
         const room = state.loadRoom(roomId);
         if (!room) throw notFound('Room closed');
         const user = me();
+        if (room.chatOpen === false && room.ownerId !== user.id && !room.mods.has(user.id) && user.role !== 'admin') {
+          throw forbidden('হোস্ট চ্যাট বন্ধ রেখেছে', 'chat_closed');
+        }
         const body = cleanText(payload?.body, config.limits.maxMsgLen, 'message');
         if (!body) throw badRequest('Empty message');
         const msg = pushMessage(room, {
           id: uid(), kind: 'text', body, userId: user.id,
           user: state.publicUser(user), meta: {}, createdAt: Date.now(),
         });
+        awardXpSafe(io, user.id, 1);
         ack?.({ ok: true, message: msg });
       } catch (e) { ack?.({ ok: false, error: e.message, code: e.code }); }
     });
@@ -320,6 +477,10 @@ function mount(io) {
         const target = room.members.get(toId);
         if (!target) throw notFound('That person is not in this room');
         if (target.userId === sender.id) throw badRequest('You cannot gift yourself');
+        if (get('SELECT 1 FROM blocks WHERE (blocker_id = ? AND target_id = ?) OR (blocker_id = ? AND target_id = ?)',
+          sender.id, target.userId, target.userId, sender.id)) {
+          throw forbidden('এই ইউজারকে গিফট পাঠানো যাবে না', 'blocked');
+        }
         if (sender.coins < cost) {
           const e = new Error(`Not enough coins — you need ${cost - sender.coins} more`);
           e.code = 'insufficient_coins';
@@ -331,7 +492,18 @@ function mount(io) {
         const t = Date.now();
 
         run('UPDATE users SET coins = coins - ? WHERE id = ?', cost, sender.id);
-        run('UPDATE users SET diamonds = diamonds + ?, xp = xp + ? WHERE id = ?', cost, Math.round(cost / 10), target.userId);
+        run('UPDATE users SET diamonds = diamonds + ? WHERE id = ?', cost, target.userId);
+        if (room.ownerId !== target.userId) {
+          run('UPDATE users SET diamonds = diamonds + ? WHERE id = ?', hostShare, room.ownerId);
+        }
+        awardXpSafe(io, sender.id, Math.round(cost / 20));
+        awardXpSafe(io, target.userId, Math.round(cost / 10));
+        if (room.ownerId !== target.userId) awardXpSafe(io, room.ownerId, Math.round(hostShare / 20));
+        // heavy gifters earn VIP
+        if (target.user && !target.user.vip) {
+          const after = get('SELECT diamonds FROM users WHERE id = ?', target.userId);
+          if (after && after.diamonds >= 5000) run('UPDATE users SET vip = 1 WHERE id = ?', target.userId);
+        }
         if (room.ownerId !== target.userId) {
           run('UPDATE users SET diamonds = diamonds + ?, xp = xp + ? WHERE id = ?', hostShare, Math.round(hostShare / 20), room.ownerId);
         }
@@ -400,6 +572,16 @@ function mount(io) {
         const toId = String(payload?.toUserId || '');
         const to = get('SELECT * FROM users WHERE id = ?', toId);
         if (!to) throw notFound('User not found');
+        if (get('SELECT 1 FROM blocks WHERE (blocker_id = ? AND target_id = ?) OR (blocker_id = ? AND target_id = ?)',
+          socket.user.id, to.id, to.id, socket.user.id)) {
+          throw forbidden('এই ইউজারকে মেসেজ পাঠানো যাবে না (ব্লক)', 'blocked');
+        }
+        const toSettings = get('SELECT * FROM user_settings WHERE user_id = ?', to.id);
+        const privacy = toSettings?.dm_privacy || 'everyone';
+        if (privacy === 'nobody') throw forbidden('এই ইউজার কারও কাছ থেকে মেসেজ গ্রহণ করেন না', 'dm_private');
+        if (privacy === 'following' && !get('SELECT 1 FROM follows WHERE follower_id = ? AND target_id = ?', to.id, socket.user.id)) {
+          throw forbidden('শুধুমাত্র ফলোয়াররাই এই ইউজারকে মেসেজ পাঠাতে পারে', 'dm_private');
+        }
         const body = cleanText(payload?.body, config.limits.maxMsgLen, 'message');
         if (!body) throw badRequest('Empty message');
         const sender = me();
@@ -465,16 +647,16 @@ function mount(io) {
   // ---- room ambience --------------------------------------------------------
   // Official rooms keep a light chatter going so they never look abandoned.
   const AMBIENT_LINES = [
-    'Welcome to the room everyone 🎉',
-    'Mic is open — say something 😄',
-    'This song is 🔥',
-    'Adda korbo, ke acho? 🇧🇩',
-    'Follow the host, they are so funny',
-    'Gift er jonno wait korchi 🎁',
-    'Beautiful voice! 👏',
-    'Anyone from Kolkata? ✨',
-    'Bhalo lagche sobai mile 🎧',
-    'Raise your hand if you want a mic ✋',
+    'সবাইকে স্বাগতম 🎉',
+    'মাইক খোলা আছে — কিছু বলুন 😄',
+    'গানটা তো আগুন 🔥',
+    'আড্ডা দেব, কে কে আছো? 🐼',
+    'হোস্টকে ফলো করে রাখুন, দারুণ মজার',
+    'গিফট পাঠানোর অপেক্ষায় 🎁',
+    'কী সুন্দর গলা! 👏',
+    'কেউ কলকাতা থেকে আছেন? ✨',
+    'সবাই মিলে ভালো লাগছে 🎧',
+    'মাইক চাইলে হাত তুলুন ✋',
   ];
   setInterval(() => {
     for (const room of state.liveRooms()) {
