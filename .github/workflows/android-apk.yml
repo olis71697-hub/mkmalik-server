@@ -44,6 +44,11 @@ jobs:
       - name: Verify APK was created
         run: test -s android/app/build/outputs/apk/debug/app-debug.apk
 
+      - name: Verify the web app is bundled in the APK
+        run: |
+          unzip -Z1 android/app/build/outputs/apk/debug/app-debug.apk | grep -Fxq 'assets/index.html'
+          unzip -Z1 android/app/build/outputs/apk/debug/app-debug.apk | grep -Fxq 'assets/js/runtime.js'
+
       - name: Upload APK build artifact
         uses: actions/upload-artifact@v7
         with:
@@ -61,6 +66,7 @@ jobs:
           cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/Panda-Voice.apk"
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/Panda-Voice.apk" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "Panda Voice Android 1.0.1" --notes "Fixed installable Android app bundle. Download Panda-Voice.apk to install."
           else
-            gh release create "$RELEASE_TAG" "$RUNNER_TEMP/Panda-Voice.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Panda Voice Android 1.0.0" --prerelease --notes "Installable debug-signed Android APK for Panda Voice. Download Panda-Voice.apk to install."
+            gh release create "$RELEASE_TAG" "$RUNNER_TEMP/Panda-Voice.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Panda Voice Android 1.0.1" --prerelease --notes "Fixed installable Android app bundle. Download Panda-Voice.apk to install."
           fi
