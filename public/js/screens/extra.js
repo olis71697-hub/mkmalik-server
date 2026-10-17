@@ -634,6 +634,12 @@ openPage.settings = (App) => {
         row(ICON.info, t('version'), '1.0.0 🐼', () => {})),
       el('div', { class: 'list-card', style: { marginTop: '14px' } },
         row(ICON.close, t('deleteAccount'), t('deleteAccountWarn'), () => openPage.deleteAccount(App), true),
+        row(ICON.logout, t('logoutAll'), t('logoutAllNote'), async () => {
+          // server-side: bump token_version → every session, everywhere, dies
+          try { await api.logoutAll(); } catch (_) {}
+          closePage(page);
+          import('../app.js').then(({ signOut }) => signOut());
+        }),
         row(ICON.logout, t('logout'), '', async () => { closePage(page); import('../app.js').then(({ signOut }) => signOut()); })),
     );
   });

@@ -186,6 +186,31 @@ check('host can remove someone from the mic', kickRes.ok);
 const endRes = await emitAck(s1, 'room:end', {});
 check('host can end the room', endRes.ok);
 
+R.section('account security: sessions & daily-bonus streak');
+const { createRequire } = await import('node:module');
+const bonusMod = createRequire(import.meta.url)('../server/bonus.js');
+check('streak math: consecutive days escalate, gaps reset, caps at 7',
+  bonusMod.streakFor(null, 100, 0).streak === 1
+  && bonusMod.streakFor(99, 100, 3).streak === 4
+  && bonusMod.streakFor(50, 100, 6).streak === 1
+  && bonusMod.streakFor(100, 100, 5).claimed === true
+  && bonusMod.streakFor(99, 100, 9).streak === 7,
+  `day1=${bonusMod.awardFor(150, 1)} day7=${bonusMod.awardFor(150, 7)} coins`);
+
+const E = await freshUser('Security');
+const b1 = await apiFetch('/api/me/daily-bonus', { method: 'POST', token: E.token });
+check('daily bonus claimed (streak day 1)', b1.ok && b1.data?.awarded === 150 && b1.data?.streak === 1,
+  `+${b1.data?.awarded} 🪙 streak ${b1.data?.streak}`);
+const b2 = await apiFetch('/api/me/daily-bonus', { method: 'POST', token: E.token });
+check('daily bonus is once per day', b2.status === 400 && b2.data?.code === 'bonus_claimed', b2.data?.code);
+
+const lo = await apiFetch('/api/auth/logout-all', { method: 'POST', token: E.token });
+check('log out everywhere succeeds', lo.ok);
+const deadTok = await apiFetch('/api/me', { token: E.token });
+check('the old token is dead on every device', deadTok.status === 401, `HTTP ${deadTok.status}`);
+const relog = await apiFetch('/api/auth/login', { method: 'POST', body: { username: E.user.username, password: 'test1234' } });
+check('a fresh sign-in still works afterwards', relog.ok && !!relog.data?.token);
+
 R.section('chat safety filter (server-side, bn + en + evasion)');
 // fresh socket in a fresh room
 const room3 = await createRoom(A.token, { title: 'Safety filter room', category: 'chat' });

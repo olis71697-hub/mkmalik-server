@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS users (
   role          TEXT DEFAULT 'user',           -- user | host | admin
   is_bot        INTEGER DEFAULT 0,
   last_bonus_at INTEGER DEFAULT 0,
+  last_bonus_day INTEGER,                 -- day index of the last daily-bonus claim
+  bonus_streak  INTEGER DEFAULT 0,        -- consecutive claim days (capped at 7)
+  token_version INTEGER DEFAULT 0,        -- bump to invalidate every session
   created_at    INTEGER NOT NULL,
   last_seen_at  INTEGER DEFAULT 0
 );
@@ -311,6 +314,9 @@ for (const col of [
   ['users', 'email', 'TEXT'],
   ['users', 'google_id', 'TEXT'],
   ['users', 'user_code', 'TEXT'],
+  ['users', 'last_bonus_day', 'INTEGER'],
+  ['users', 'bonus_streak', 'INTEGER DEFAULT 0'],
+  ['users', 'token_version', 'INTEGER DEFAULT 0'],
   ['rooms', 'rules', "TEXT DEFAULT ''"],
   ['rooms', 'chat_open', 'INTEGER DEFAULT 1'],
 ]) {

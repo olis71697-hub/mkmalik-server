@@ -94,6 +94,9 @@ export const api = {
   // ---- auth (Google) ----
   google: (credential) => post('/auth/google', { credential }),
 
+  // ---- sessions ----
+  logoutAll: () => post('/auth/logout-all'),
+
   // ---- auth (password reset) ----
   forgot: (username) => post('/auth/forgot', { username }),
   reset: (username, code, password) => post('/auth/reset', { username, code, password }),
@@ -151,9 +154,6 @@ export const api = {
   purchase: (packageId, paymentMethod, paymentRef) =>
     post('/wallet/purchase', { packageId, paymentMethod, paymentRef }),
   exchange: (diamonds) => post('/wallet/exchange', { diamonds }),
-
-  // ---- moments (API kept) ----
-  moments: () => get('/moments'),
 
   // ---- chat ----
   conversations: () => get('/chat/conversations'),

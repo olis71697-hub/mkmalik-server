@@ -20,6 +20,7 @@ const dm = require('./dm');
 const realtime = require('./realtime');
 const push = require('./push');
 const filter = require('./filter');
+const bonus = require('./bonus');
 const {
   uid, shortCode, limiter, badRequest, notFound, forbidden, unauthorized,
   cleanText, assertUsername, assertPassword, safeJson, svgAvatar, pick,
@@ -35,7 +36,6 @@ function assertClean(text, label) {
 const loginLimiter = limiter('login', config.limits.loginAttemptsPerMin, 60_000);
 const roomLimiter = limiter('room-create', config.limits.roomsCreatedPerHour, 3_600_000);
 const followLimiter = limiter('follow', config.limits.followPerMin, 60_000);
-const momentLimiter = limiter('moment', config.limits.momentsPerHour, 3_600_000);
 const otpLimiter = limiter('otp', config.otp.maxPerHour, 3_600_000);
 
 const ROOM_CATEGORIES = [
@@ -131,7 +131,7 @@ function publicProfile(u, viewerId) {
     ...state.publicUser(u), followers, following, friends, isFollowing, blocked,
     giftsReceived: giftsIn.c, giftsReceivedCoins: giftsIn.v,
     giftsSent: giftsOut.c, giftsSentCoins: giftsOut.v,
-    roomsHosted, moments: get('SELECT COUNT(*) c FROM moments WHERE user_id = ?', u.id).c,
+    roomsHosted,
     createdAt: u.created_at, lastSeenAt: u.last_seen_at, online,
     xp: u.xp || 0, xpNext: xpForLevel((u.level || 1) + 1), xpFloor: xpForLevel(u.level || 1),
     email: viewerId === u.id ? (u.email || null) : undefined,
@@ -210,6 +210,19 @@ router.post('/auth/register', wrap((req, res) => {
 
   const row = get('SELECT * FROM users WHERE id = ?', user.id);
   res.status(201).json({ token: auth.sign(row), user: publicProfile(row, row.id), welcomeCoins: user.coins });
+}));
+
+/** Invalidate every session of the signed-in account, on every device. */
+router.post('/auth/logout-all', auth.requireAuth, wrap((req, res) => {
+  run('UPDATE users SET token_version = token_version + 1 WHERE id = ?', req.user.id);
+  // drop any live sockets too, so realtime access ends immediately
+  const io = req.app.get('io');
+  if (io) {
+    for (const s of io.sockets.sockets.values()) {
+      if (s.user?.id === req.user.id) { try { s.disconnect(true); } catch (_) {} }
+    }
+  }
+  res.json({ ok: true });
 }));
 
 router.post('/auth/login', wrap((req, res) => {
@@ -493,17 +506,18 @@ router.post('/me/avatar', auth.requireAuth, upload.single('image'), wrap((req, r
 
 router.post('/me/daily-bonus', auth.requireAuth, wrap((req, res) => {
   const u = get('SELECT * FROM users WHERE id = ?', req.user.id);
-  const DAY = 86_400_000;
-  if (Date.now() - u.last_bonus_at < DAY) {
-    const left = Math.ceil((DAY - (Date.now() - u.last_bonus_at)) / 3_600_000);
-    throw badRequest(`ইতিমধ্যে নেওয়া হয়েছে — ~${left} ঘণ্টা পরে আসুন`, 'bonus_claimed');
+  const today = Math.floor(Date.now() / bonus.DAY_MS);
+  const st = bonus.streakFor(u.last_bonus_day ?? null, today, u.bonus_streak || 0);
+  if (st.claimed) {
+    throw badRequest('আজকের বোনাস নেওয়া হয়েছে — আগামীকাল আবার আসুন 🔥', 'bonus_claimed');
   }
-  const coins = config.economy.dailyBonus;
-  run('UPDATE users SET coins = coins + ?, last_bonus_at = ? WHERE id = ?', coins, Date.now(), u.id);
+  const coins = bonus.awardFor(config.economy.dailyBonus, st.streak);
+  run('UPDATE users SET coins = coins + ?, bonus_streak = ?, last_bonus_day = ?, last_bonus_at = ? WHERE id = ?',
+    coins, st.streak, today, Date.now(), u.id);
   run('INSERT INTO coin_ledger (id, user_id, delta, reason, meta, created_at) VALUES (?,?,?,?,?,?)',
-    uid(), u.id, coins, 'daily_bonus', '{}', Date.now());
+    uid(), u.id, coins, 'daily_bonus', JSON.stringify({ streak: st.streak, day: today }), Date.now());
   awardXp(req.app.get('io'), u.id, 10);
-  res.json({ ok: true, coins: u.coins + coins, awarded: coins });
+  res.json({ ok: true, coins: u.coins + coins, awarded: coins, streak: st.streak });
 }));
 
 /** Settings (language, theme, notifications, privacy). */
@@ -1008,76 +1022,6 @@ router.post('/wallet/topup', auth.requireAuth, wrap((req, res) => {
     uid(), req.user.id, amount, 'admin_topup', '{}', Date.now());
   const u = get('SELECT * FROM users WHERE id = ?', req.user.id);
   res.json({ ok: true, coins: u.coins });
-}));
-
-// ===========================================================================
-// MOMENTS (kept for API compatibility)
-// ===========================================================================
-router.get('/moments', auth.optionalAuth, wrap((req, res) => {
-  const rows = all(`SELECT m.*, u.display_name, u.username, u.avatar, u.level, u.vip
-                    FROM moments m JOIN users u ON u.id = m.user_id
-                    ORDER BY m.created_at DESC LIMIT 60`);
-  const viewer = req.user?.id;
-  res.json({
-    moments: rows.map((m) => ({
-      id: m.id, body: m.body, media: m.media, likes: m.likes, comments: m.comments,
-      createdAt: m.created_at, roomId: m.room_id,
-      liked: viewer ? !!get('SELECT 1 FROM moment_likes WHERE moment_id = ? AND user_id = ?', m.id, viewer) : false,
-      user: { id: m.user_id, displayName: m.display_name, username: m.username, avatar: m.avatar, level: m.level, vip: !!m.vip },
-    })),
-  });
-}));
-
-router.post('/moments', auth.requireAuth, upload.single('image'), wrap((req, res) => {
-  momentLimiter.hit(req.user.id);
-  const body = cleanText(req.body?.body || '', 500, 'post');
-  const media = req.file ? `/uploads/${req.file.filename}` : (req.body?.media || null);
-  if (!body && !media) throw badRequest('Write something or add a photo');
-  const id = uid();
-  run('INSERT INTO moments (id, user_id, body, media, room_id, created_at) VALUES (?,?,?,?,?,?)',
-    id, req.user.id, body, media, req.body?.roomId || null, Date.now());
-  res.status(201).json({ ok: true, id });
-}));
-
-router.post('/moments/:id/like', auth.requireAuth, wrap((req, res) => {
-  const m = get('SELECT * FROM moments WHERE id = ?', req.params.id);
-  if (!m) throw notFound('Post not found');
-  const liked = get('SELECT 1 FROM moment_likes WHERE moment_id = ? AND user_id = ?', m.id, req.user.id);
-  if (liked) {
-    run('DELETE FROM moment_likes WHERE moment_id = ? AND user_id = ?', m.id, req.user.id);
-    run('UPDATE moments SET likes = MAX(0, likes - 1) WHERE id = ?', m.id);
-    return res.json({ liked: false, likes: Math.max(0, m.likes - 1) });
-  }
-  run('INSERT INTO moment_likes (moment_id, user_id, created_at) VALUES (?,?,?)', m.id, req.user.id, Date.now());
-  run('UPDATE moments SET likes = likes + 1 WHERE id = ?', m.id);
-  if (m.user_id !== req.user.id) {
-    notify(m.user_id, 'like', 'New like', `${req.user.display_name} liked your moment`, { momentId: m.id });
-  }
-  res.json({ liked: true, likes: m.likes + 1 });
-}));
-
-router.get('/moments/:id/comments', wrap((req, res) => {
-  const rows = all(`SELECT c.*, u.display_name, u.avatar FROM moment_comments c
-                    JOIN users u ON u.id = c.user_id WHERE c.moment_id = ? ORDER BY c.created_at`, req.params.id);
-  res.json({
-    comments: rows.map((c) => ({
-      id: c.id, body: c.body, createdAt: c.created_at,
-      user: { id: c.user_id, displayName: c.display_name, avatar: c.avatar },
-    })),
-  });
-}));
-
-router.post('/moments/:id/comments', auth.requireAuth, wrap((req, res) => {
-  const m = get('SELECT * FROM moments WHERE id = ?', req.params.id);
-  if (!m) throw notFound('Post not found');
-  const body = cleanText(req.body?.body || '', 200, 'comment');
-  if (!body) throw badRequest('Empty comment');
-  const id = uid();
-  run('INSERT INTO moment_comments (id, moment_id, user_id, body, created_at) VALUES (?,?,?,?,?)',
-    id, m.id, req.user.id, body, Date.now());
-  run('UPDATE moments SET comments = comments + 1 WHERE id = ?', m.id);
-  if (m.user_id !== req.user.id) notify(m.user_id, 'comment', 'New comment', `${req.user.display_name}: ${body.slice(0, 60)}`, { momentId: m.id });
-  res.status(201).json({ ok: true, comment: { id, body, createdAt: Date.now(), user: { id: req.user.id, displayName: req.user.display_name, avatar: req.user.avatar } } });
 }));
 
 // ===========================================================================

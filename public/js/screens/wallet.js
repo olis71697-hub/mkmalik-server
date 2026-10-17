@@ -207,7 +207,8 @@ export function mountWallet(App) {
     try {
       const r = await api.dailyBonus();
       App.setWallet({ coins: r.coins });
-      toast(`${t('bonusClaimed')} +${r.awarded} 🪙`, 'ok');
+      const streakTxt = r.streak > 1 ? ` · 🔥 ${r.streak}${isBn() ? ' দিন স্ট্রিক' : '-day streak'}` : '';
+      toast(`${t('bonusClaimed')} +${r.awarded} 🪙${streakTxt}`, 'ok');
       load();
     } catch (e) { toast(e.message, 'err'); }
   }

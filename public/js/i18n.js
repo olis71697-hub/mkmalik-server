@@ -42,6 +42,8 @@ const DICT = {
     // auth
     login: 'লগইন',
     logout: 'লগআউট',
+    logoutAll: 'সব ডিভাইস থেকে লগআউট',
+    logoutAllNote: 'এই অ্যাকাউন্টের প্রতিটি সেশন বাতিল হবে',
     register: 'রেজিস্ট্রেশন',
     createAccount: 'নতুন অ্যাকাউন্ট',
     username: 'ইউজারনেম',
@@ -321,6 +323,8 @@ const DICT = {
 
     login: 'Log in',
     logout: 'Log out',
+    logoutAll: 'Log out on all devices',
+    logoutAllNote: 'Ends every active session of this account',
     register: 'Sign up',
     createAccount: 'Create account',
     username: 'Username',

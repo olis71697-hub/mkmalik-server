@@ -4,7 +4,7 @@
  * DEV FIXTURE ONLY — never run automatically at boot.
  * Creates a cast of test users and rooms for local development:
  *   node server/seed.js          (skips if data already exists)
- *   node server/seed.js --force  (wipes rooms/moments and re-seeds)
+ *   node server/seed.js --force  (wipes rooms and re-seeds)
  * Real deployments start empty and fill up with real sign-ups.
  */
 
@@ -68,16 +68,6 @@ const TOPICS_CHAT = [
   'কলকাতা থেকে কেউ? 🇮🇳', 'গানটা তো আগুন 🔥', 'শুভরাত্রি সবাইকে, ভালোবাসা 💚',
 ];
 
-const MOMENT_TEXTS = [
-  'প্রথমবার ফুল রুম হোস্ট করলাম — ৪ মিনিটে ১০টা মাইক শেষ 🥳',
-  'নতুন মাইক সেটআপ ফাইনালি রেডি 🎙️ সাউন্ড অসাধারণ',
-  'গতকালের লেট নাইট রুমটা অন্যরকম ছিল। সবাইকে ধন্যবাদ 💚',
-  'একটা গানে ৩০০০ কয়েনের রোজ — তোমরা অবিশ্বাস্য 🌹',
-  'ডেইলি বোনাস নিলাম। কে গাইবে? 🎤',
-  'স্টাডি রুমে ২৪ জন এবং পুরো নীরব 😂 পারফেক্ট',
-  'চা + বৃষ্টির সন্ধ্যা + স্লো গান = পারফেক্ট রুম ☕🌧️',
-  'লেভেল ৩০ পার করলাম! আজ রাতে আমার রুমে সেলিব্রেশন 🎂',
-];
 
 const rnd = (a) => a[Math.floor(Math.random() * a.length)];
 const ago = (min) => Date.now() - min * 60_000;
@@ -190,14 +180,6 @@ function seed() {
     insGiftEvent.run(uid(), rnd(roomIds), ids[from], ids[to], g[0], 1, g[3], ago(Math.random() * 60 * 24 * 3));
   }
 
-  // ---- moments --------------------------------------------------------------
-  const insMoment = db.prepare(
-    `INSERT INTO moments (id, user_id, body, media, likes, comments, created_at) VALUES (?,?,?,?,?,?,?)`);
-  PEOPLE.slice(0, 14).forEach(([username], i) => {
-    insMoment.run(uid(), ids[username], MOMENT_TEXTS[i % MOMENT_TEXTS.length], null,
-      Math.floor(Math.random() * 240), Math.floor(Math.random() * 30), ago(12 + i * 47));
-  });
-
   // ---- a couple of direct conversations for the demo user -------------------
   const me = ids.panda;
   ['nusrat', 'rafi', 'tuli', 'mira'].forEach((u, i) => {
@@ -228,7 +210,6 @@ function seed() {
     users: get('SELECT COUNT(*) c FROM users').c,
     rooms: get('SELECT COUNT(*) c FROM rooms WHERE closed_at IS NULL').c,
     gifts: get('SELECT COUNT(*) c FROM gift_catalog').c,
-    moments: get('SELECT COUNT(*) c FROM moments').c,
   };
   console.log('[seed] done', counts);
   console.log('[seed] demo login →  username: panda   password: demo1234');

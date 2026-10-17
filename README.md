@@ -182,6 +182,8 @@ window, or two phones on the same network:
 | Gifts, coins, diamonds, diamond→coin exchange | TURN relay for strict NATs (`TURN_URL`) |
 | Followers, DMs, leaderboards, Web Push (VAPID) | |
 | "Your followed host is live" notifications | |
+| Sessions: JWT + "log out on all devices" (token revocation) | |
+| Daily bonus with consecutive-day streaks (150 → 300 coins) | |
 | Moments, likes, comments | — |
 | Direct messages | — |
 | Accounts, sessions, follows | — |
