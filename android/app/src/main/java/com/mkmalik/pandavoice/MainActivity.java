@@ -22,7 +22,8 @@ import androidx.webkit.WebViewAssetLoader;
 /** Native Android shell for the bundled Panda Voice app. */
 public final class MainActivity extends Activity {
     private static final int REQUEST_MICROPHONE = 40;
-    private static final String APP_URL = "https://appassets.androidplatform.net/assets/index.html";
+    // Use a new path outside the old PWA service-worker scope (/assets/).
+    private static final String APP_URL = "https://appassets.androidplatform.net/panda/index.html?v=1.0.2";
 
     private WebView webView;
     private PermissionRequest pendingMicRequest;
@@ -33,7 +34,7 @@ public final class MainActivity extends Activity {
         styleSystemBars();
 
         WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
-                .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+                .addPathHandler("/panda/", new WebViewAssetLoader.AssetsPathHandler(this))
                 .build();
 
         webView = new WebView(this);

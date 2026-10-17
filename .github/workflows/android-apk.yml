@@ -60,13 +60,13 @@ jobs:
       - name: Publish direct APK download
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: panda-voice-android-v1.0.0
+          RELEASE_TAG: panda-voice-android-v1.0.2
         run: |
           set -euo pipefail
           cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/Panda-Voice.apk"
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/Panda-Voice.apk" --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "Panda Voice Android 1.0.1" --notes "Fixed installable Android app bundle. Download Panda-Voice.apk to install."
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "Panda Voice Android 1.0.2" --notes "Includes the Android WebView asset-loading fix. Download Panda-Voice.apk to install."
           else
-            gh release create "$RELEASE_TAG" "$RUNNER_TEMP/Panda-Voice.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Panda Voice Android 1.0.1" --prerelease --notes "Fixed installable Android app bundle. Download Panda-Voice.apk to install."
+            gh release create "$RELEASE_TAG" "$RUNNER_TEMP/Panda-Voice.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Panda Voice Android 1.0.2" --prerelease --notes "Includes the Android WebView asset-loading fix. Download Panda-Voice.apk to install."
           fi

@@ -291,7 +291,11 @@ function setupInstall() {
 }
 
 // ── service worker ─────────────────────────────────────────────────────────
-if ('serviceWorker' in navigator && window.isSecureContext) {
+// The Android WebView already bundles the app locally. It has its own native
+// WebViewAssetLoader handler for service-worker requests, so don't install the
+// browser PWA worker on that synthetic asset origin.
+const inAndroidAssetShell = location.hostname === 'appassets.androidplatform.net';
+if (!inAndroidAssetShell && 'serviceWorker' in navigator && window.isSecureContext) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register(rel('sw.js')).catch(() => {});
   });
