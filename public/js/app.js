@@ -21,7 +21,7 @@ export const App = {
   current: 'home',
   mode: 'server',        // the app only ever runs against the real backend
   wallet: { coins: 0, diamonds: 0 },
-  settings: { language: 'bn', theme: 'dark' },
+  settings: { language: 'bn', theme: 'light' },
   socketReady: false,
   unread: { notifications: 0, messages: 0 },
 
@@ -55,14 +55,16 @@ export function go(name) {
 
 // ── theme / language ───────────────────────────────────────────────────────
 export function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
-  try { localStorage.setItem('panda.theme', theme); } catch (_) {}
-  App.events.emit('theme', theme);
+  const nextTheme = theme === 'light' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = nextTheme;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', nextTheme === 'light' ? '#fffaf1' : '#0a0f0d');
+  try { localStorage.setItem('panda.theme', nextTheme); } catch (_) {}
+  App.events.emit('theme', nextTheme);
 }
 function applyStoredTheme() {
   let theme = null;
   try { theme = localStorage.getItem('panda.theme'); } catch (_) {}
-  if (!theme) theme = App.settings?.theme || 'dark';
+  if (!theme) theme = App.settings?.theme || 'light';
   applyTheme(theme);
 }
 

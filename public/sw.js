@@ -7,7 +7,7 @@
    keep the icons fast.
    --------------------------------------------------------------------------- */
 
-const VERSION = 'panda-v2';
+const VERSION = 'panda-v3';
 const SHELL = `${VERSION}-shell`;
 const ASSETS = `${VERSION}-assets`;
 

@@ -53,7 +53,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_code ON users(user_code) WHERE user_
 CREATE TABLE IF NOT EXISTS user_settings (
   user_id     TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   language    TEXT DEFAULT 'bn',
-  theme       TEXT DEFAULT 'dark',
+  theme       TEXT DEFAULT 'light',
   notify_follow   INTEGER DEFAULT 1,
   notify_message  INTEGER DEFAULT 1,
   notify_gift     INTEGER DEFAULT 1,

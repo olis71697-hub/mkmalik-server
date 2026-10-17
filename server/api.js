@@ -149,14 +149,15 @@ function notify(userId, kind, title, body, meta = {}) {
 
 // ---- settings --------------------------------------------------------------
 const DEFAULT_SETTINGS = {
-  language: 'bn', theme: 'dark', notify_follow: 1, notify_message: 1, notify_gift: 1,
+  language: 'bn', theme: 'light', notify_follow: 1, notify_message: 1, notify_gift: 1,
   notify_invite: 1, dm_privacy: 'everyone', show_online: 1,
 };
 
 function getSettings(userId) {
   let row = get('SELECT * FROM user_settings WHERE user_id = ?', userId);
   if (!row) {
-    run('INSERT OR IGNORE INTO user_settings (user_id, updated_at) VALUES (?,?)', userId, Date.now());
+    run('INSERT OR IGNORE INTO user_settings (user_id, language, theme, updated_at) VALUES (?,?,?,?)',
+      userId, DEFAULT_SETTINGS.language, DEFAULT_SETTINGS.theme, Date.now());
     row = get('SELECT * FROM user_settings WHERE user_id = ?', userId) || {};
   }
   return { ...DEFAULT_SETTINGS, ...Object.fromEntries(Object.entries(row).filter(([k]) => k !== 'user_id' && k !== 'updated_at')) };

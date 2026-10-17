@@ -1,7 +1,7 @@
 /* Home screen — live rooms feed with tabs, pull-to-refresh, people strips. */
 
 import { $, $$, el, toast, svg, ICON, compact, ago, avatarImg, roomCover, categoryEmoji, categoryLabel, CATEGORIES, haptic } from '../util.js';
-import { t, isBn } from '../i18n.js';
+import { t, isBn, onLangChange } from '../i18n.js';
 import { api } from '../api.js';
 import { openRoom, openPage } from './room.js';
 
@@ -17,20 +17,44 @@ export function mountHome(App) {
   const onlineEl = $('#homeOnline');
   const ptr = $('#homePtr');
 
-  let sort = 'hot';
+  let sort = 'trending';
   let category = 'all';
-  const TABS = [
-    ['hot', t('popular')],
-    ['new', t('newRooms')],
-    ['trending', t('trending')],
-    ['followed', t('followed')],
+  const categoriesEl = $('#homeCategories');
+  const tabOptions = () => [
+    ['related', t('relatedRooms')],
+    ['hot', t('hotRooms')],
+    ['trending', t('exploreRooms')],
   ];
+  const HOME_CATEGORIES = ['all', 'broadcast', 'party', 'sing', 'birthday', 'music', 'gaming', 'chat']
+    .map((id) => CATEGORIES.find((c) => c.id === id)).filter(Boolean);
+  const CATEGORY_EN = {
+    all: 'All', broadcast: 'Broadcast', party: 'Party', sing: 'Sing',
+    birthday: 'Birthday', music: 'Music', gaming: 'Gaming', chat: 'Chat',
+  };
 
   function renderTabs() {
     tabsEl.innerHTML = '';
-    for (const [id, label] of TABS) {
-      const b = el('button', { class: id === sort ? 'is-active' : '', text: label, onclick: () => { sort = id; haptic(6); renderTabs(); load(); } });
-      tabsEl.append(b);
+    for (const [id, label] of tabOptions()) {
+      const active = id === sort;
+      tabsEl.append(el('button', {
+        type: 'button', class: active ? 'is-active' : '', text: label,
+        'aria-pressed': active ? 'true' : 'false',
+        onclick: () => { sort = id; haptic(6); renderTabs(); load(); },
+      }));
+    }
+  }
+
+  function renderCategories() {
+    categoriesEl.innerHTML = '';
+    for (const item of HOME_CATEGORIES) {
+      const active = category === item.id;
+      const label = isBn() ? item.label : CATEGORY_EN[item.id];
+      const emoji = item.id === 'all' ? '✨' : categoryEmoji(item.id);
+      categoriesEl.append(el('button', {
+        type: 'button', class: 'chip' + (active ? ' is-active' : ''),
+        text: `${emoji} ${label}`, 'aria-pressed': active ? 'true' : 'false',
+        onclick: () => { category = item.id; haptic(6); renderCategories(); load(); },
+      }));
     }
   }
 
@@ -81,7 +105,7 @@ export function mountHome(App) {
     try {
       const [roomsR, usersR] = await Promise.all([
         api.rooms({ sort, category: category === 'all' ? undefined : category }),
-        api.users(sort === 'new' ? 'new' : 'popular'),
+        api.users('popular'),
       ]);
       feed.innerHTML = '';
       const rooms = roomsR.rooms || [];
@@ -156,6 +180,8 @@ export function mountHome(App) {
   }, { passive: true });
 
   renderTabs();
+  renderCategories();
+  onLangChange(() => { renderTabs(); renderCategories(); });
   load();
 
   App.events.on('route', (name) => { if (name === 'home') load({ silent: true }); });

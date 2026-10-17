@@ -44,7 +44,7 @@ check('shortcuts stay inside the app',
   (man.shortcuts || []).map((s) => s.url).join(', '));
 check('manifest icons are relative', man.icons?.every((i) => !i.src.startsWith('/')),
   (man.icons || []).map((i) => i.src).join(', '));
-check('theme_color matches the design', man.theme_color === '#0a0f0d', man.theme_color);
+check('theme_color matches the warm light design', man.theme_color === '#fffaf1', man.theme_color);
 
 const purposes = (man.icons || []).map((i) => i.purpose || 'any');
 check('declares 192 and 512 icons',
@@ -83,7 +83,7 @@ check('links the manifest', /rel="manifest"\s+href="manifest\.json"/.test(html))
 check('index.html has no absolute asset paths', !/(?:href|src)="\//.test(html));
 check('has an apple-touch-icon for iOS', /rel="apple-touch-icon"/.test(html));
 check('declares apple-mobile-web-app-capable', /apple-mobile-web-app-capable"\s+content="yes"/.test(html));
-check('theme-color is the brand green-dark', /name="theme-color"\s+content="#0a0f0d"/.test(html));
+check('theme-color matches the warm light theme', /name="theme-color"\s+content="#fffaf1"/.test(html));
 check('has an in-app install prompt', /id="installBar"/.test(html) && /id="installBtn"/.test(html));
 
 // ── the app registers the worker ───────────────────────────────────────────
@@ -138,6 +138,17 @@ const landed = !window.document.querySelector('#authScreen')?.hidden
   || !window.document.querySelector('#onboarding')?.hidden;
 check('app still boots and renders with PWA wiring', bootOk && landed, landed ? 'sign-in flow reached' : 'nothing visible');
 check('install bar exists in the DOM', !!window.document.querySelector('#installBar'));
+
+// ── reference-style room discovery ─────────────────────────────────────────
+const homeSrc = fs.readFileSync(path.join(ROOT, 'js/screens/home.js'), 'utf8');
+check('home has Related / Hot / Explore sorting',
+  ['relatedRooms', 'hotRooms', 'exploreRooms'].every((key) => homeSrc.includes(`t('${key}')`)));
+check('home supports the reference room categories',
+  ['broadcast', 'party', 'sing', 'birthday'].every((id) => homeSrc.includes(`'${id}'`)));
+check('home exposes the category strip in the page shell',
+  /id="homeCategories"/.test(html));
+check('default theme is warm light like the reference',
+  /data-theme="light"/.test(html) && man.theme_color === '#fffaf1');
 
 console.log(`\n════ RESULT: ${pass} passed, ${fail} failed ════\n`);
 process.exit(fail ? 1 : 0);

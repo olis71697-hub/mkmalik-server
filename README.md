@@ -29,7 +29,7 @@ still free.
 
 ## The app is live here
 
-**<https://raw.githack.com/olis71697-hub/mkmalik-server/main/public/index.html>**
+**<https://raw.githack.com/olis71697-hub/mkmalik-server/arena/e4891164-mkmalik-server/public/index.html>**
 
 Open it on a phone and the app runs full-screen; the install bar offers to put
 it on the home screen, and Android/Chrome shows the real install prompt.
