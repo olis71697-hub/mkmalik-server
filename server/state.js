@@ -469,8 +469,9 @@ function closeRoom(roomId, reason = 'closed') {
   const room = rooms.get(roomId);
   if (!room) return null;
   const t = Date.now();
-  run('UPDATE rooms SET closed_at = ?, ended_reason = ?, peak_users = ? WHERE id = ? AND closed_at IS NULL',
-    t, reason, Math.max(room.peakUsers, room.members.size), roomId);
+  run(`UPDATE rooms SET closed_at = ?, ended_reason = ?, peak_users = ?, total_joined = MAX(total_joined, ?)
+       WHERE id = ? AND closed_at IS NULL`,
+    t, reason, Math.max(room.peakUsers, room.members.size), room.totalJoined, roomId);
   run('DELETE FROM room_members WHERE room_id = ?', roomId);
   rooms.delete(roomId);
   return room;
@@ -511,6 +512,14 @@ function sweep(liveMembers) {
 
 function roomCount() { return liveRooms().length; }
 
+/** Persist live counters so a crash never loses a host's real numbers. */
+function flushStats() {
+  for (const room of rooms.values()) {
+    run('UPDATE rooms SET peak_users = MAX(peak_users, ?), total_joined = MAX(total_joined, ?) WHERE id = ? AND closed_at IS NULL',
+      Math.max(room.peakUsers, room.members.size), room.totalJoined, room.id);
+  }
+}
+
 /**
  * Every open room, loading any that only exist in the database (e.g. after a
  * restart, or rooms created by the seeder).
@@ -524,6 +533,14 @@ function liveRooms() {
 }
 
 function roomCount() { return liveRooms().length; }
+
+/** Persist live counters so a crash never loses a host's real numbers. */
+function flushStats() {
+  for (const room of rooms.values()) {
+    run('UPDATE rooms SET peak_users = MAX(peak_users, ?), total_joined = MAX(total_joined, ?) WHERE id = ? AND closed_at IS NULL',
+      Math.max(room.peakUsers, room.members.size), room.totalJoined, room.id);
+  }
+}
 
 /**
  * Every open room, loading any that only exist in the database (e.g. after a
@@ -553,7 +570,7 @@ function stats() {
 module.exports = {
   SEATS, publicUser, publicMember, snapshot, card, join, takeSeat, leaveSeat,
   setMute, setMuteOther, kickFromSeat, lockSeat, raiseHand, setSpeaking, heartbeat, leave,
-  closeRoom, transferHost, sweep, loadRoom, getRoom, liveRooms, roomCount, stats,
+  closeRoom, transferHost, sweep, flushStats, loadRoom, getRoom, liveRooms, roomCount, stats,
   canModerate, setModerator, banFromRoom,
   logModeration, modLog, GUEST_TTL_MS,
 };

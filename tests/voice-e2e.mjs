@@ -245,6 +245,17 @@ const badRoom = await apiFetch('/api/rooms', { method: 'POST', token: B.token, b
 check('room titles with profanity are refused', badRoom.status === 400 && badRoom.data?.code === 'chat_filtered',
   `HTTP ${badRoom.status} ${badRoom.data?.code}`);
 
+R.section('host analytics — the rooms I hosted');
+const mrA = await apiFetch('/api/me/rooms', { token: A.token });
+check('the host sees every room they opened', mrA.ok && mrA.data?.rooms?.length >= 3 && mrA.data?.summary?.totalRooms >= 3,
+  `${mrA.data?.rooms?.length} rooms, ${mrA.data?.summary?.totalJoined} joins`);
+check('per-room stats are real numbers and gift coins are tracked',
+  mrA.data.rooms.every((r) => typeof r.totalJoined === 'number' && typeof r.peakUsers === 'number' && typeof r.giftCoins === 'number')
+  && mrA.data.summary.giftCoins >= 100,
+  `giftCoins ${mrA.data?.summary?.giftCoins} 🪙`);
+const mrB = await apiFetch('/api/me/rooms', { token: B.token });
+check('someone who never hosted sees none', mrB.ok && mrB.data?.rooms?.length === 0, `${mrB.data?.rooms?.length} rooms`);
+
 f1.disconnect(); f2.disconnect();
 s1.disconnect(); s2.disconnect(); sockA.disconnect(); sockB.disconnect();
 

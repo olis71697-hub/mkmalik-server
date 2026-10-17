@@ -664,6 +664,7 @@ function mount(io) {
       if (s.data?.roomId && s.user?.id) liveMembers.add(`${s.data.roomId}:${s.user.id}`);
     }
     const closed = state.sweep(liveMembers);
+    state.flushStats();   // hosts keep their real join/peak numbers, crash or not
     for (const id of closed) io.to(roomChannel(id)).emit('room:closed', { reason: 'empty' });
     const st = state.stats();
     io.emit('server:stats', st);

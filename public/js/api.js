@@ -132,6 +132,7 @@ export const api = {
 
   // ---- explore ----
   rooms: (params = {}) => get('/rooms?' + qs(params)),
+  myRooms: () => get('/me/rooms'),
   room: (id) => get('/rooms/' + id),
   createRoom: (body) => post('/rooms', body),
 

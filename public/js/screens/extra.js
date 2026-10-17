@@ -142,6 +142,58 @@ openPage.leaderboard = (App) => {
   });
 };
 
+/* ═══════════════ my rooms — host analytics ═══════════════ */
+openPage.myRooms = (App) => {
+  pushPage('🎤 ' + t('myRooms'), async (body, page) => {
+    body.append(el('div', { class: 'spin' }));
+    try {
+      const r = await api.myRooms();
+      body.innerHTML = '';
+      const s = r.summary || {};
+
+      // summary chips
+      const chip = (v, l) => el('div', { style: { flex: 1, textAlign: 'center', padding: '12px 6px', background: 'var(--bg)', borderRadius: '14px' } },
+        el('b', { text: compact(v), style: { fontSize: '17px', display: 'block' } }),
+        el('span', { text: l, style: { fontSize: '10.5px', color: 'var(--text-faint)' } }));
+      body.append(el('div', { style: { display: 'flex', gap: '8px', margin: '6px 0 14px' } },
+        chip(s.totalRooms, t('totalRooms')),
+        chip(s.totalJoined, t('totalListeners')),
+        chip(s.giftCoins, t('giftEarnings'))));
+
+      if (!r.rooms?.length) {
+        body.append(el('div', { class: 'empty-state' },
+          el('div', { class: 'empty-emoji', text: '🎤' }),
+          el('h3', { text: t('empty') }),
+          el('p', { text: t('hostRoomsEmpty') }),
+          el('button', { class: 'btn btn--primary', text: '🎤 ' + t('createRoom'), onclick: () => openPage.createRoom(App) })));
+        return;
+      }
+
+      const card = el('div', { class: 'list-card' });
+      r.rooms.forEach((rm) => {
+        const row = el('div', { class: 'list-row', style: { cursor: rm.isLive ? 'pointer' : 'default' } },
+          el('span', { class: 'li-icon', text: categoryEmoji(rm.category) || '🎙️' }),
+          el('span', { class: 'li-body' },
+            el('span', { class: 'li-t' }, rm.title,
+              rm.isLive ? el('span', { style: { marginLeft: '6px', fontSize: '10px', fontWeight: 800, color: '#f87171' }, text: ' ● ' + t('liveNow') }) : null),
+            el('span', { class: 'li-s', text: `👥 ${compact(rm.totalJoined)} · 📈 ${compact(rm.peakUsers)} · 🪙 ${compact(rm.giftCoins)} · ${ago(rm.createdAt)}` })),
+          el('span', { class: 'li-end', html: rm.isLive ? svg(ICON.chev) : (rm.isPrivate ? '🔒' : '') }));
+        if (rm.isLive) {
+          row.onclick = () => {
+            closePage(page);
+            import('./room.js').then(({ openRoom }) => openRoom(App, rm.id));
+          };
+        }
+        card.append(row);
+      });
+      body.append(card);
+    } catch (e) {
+      body.innerHTML = '';
+      body.append(el('div', { class: 'empty-state' }, el('div', { class: 'empty-emoji', text: '📡' }), el('p', { text: e.message })));
+    }
+  });
+};
+
 /* ═══════════════ create room ═══════════════ */
 openPage.createRoom = (App) => {
   pushPage('🎤 ' + t('createRoom'), (body, page) => {

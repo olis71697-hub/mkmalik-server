@@ -161,7 +161,7 @@ function shutdown(signal) {
   console.log(`\n[shutdown] ${signal} — persisting ${state.roomCount()} live room(s)…`);
   try {
     for (const room of state.liveRooms()) {
-      db.run('UPDATE rooms SET peak_users = MAX(peak_users, ?) WHERE id = ?', room.peakUsers, room.id);
+      db.run('UPDATE rooms SET peak_users = MAX(peak_users, ?), total_joined = MAX(total_joined, ?) WHERE id = ?', room.peakUsers, room.totalJoined, room.id);
     }
     db.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   } catch (e) { console.error('[shutdown] persist failed:', e.message); }

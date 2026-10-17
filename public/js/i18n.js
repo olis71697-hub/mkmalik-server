@@ -197,6 +197,12 @@ const DICT = {
 
     // profile
     editProfile: 'প্রোফাইল এডিট',
+    myRooms: 'আমার রুম',
+    totalRooms: 'মোট রুম',
+    totalListeners: 'মোট শ্রোতা',
+    giftEarnings: 'গিফট-আয় (🪙)',
+    hostRoomsEmpty: 'এখনো কোনো রুম হোস্ট করেননি — প্রথম রুমটি খুলুন!',
+    liveNow: 'লাইভ',
     changePhoto: 'ছবি পরিবর্তন',
     bio: 'পরিচিতি',
     gender: 'জেন্ডার',
@@ -472,6 +478,12 @@ const DICT = {
     bonus: 'bonus',
 
     editProfile: 'Edit profile',
+    myRooms: 'My rooms',
+    totalRooms: 'Rooms hosted',
+    totalListeners: 'Total listeners',
+    giftEarnings: 'Gift earnings (🪙)',
+    hostRoomsEmpty: 'No rooms hosted yet — open your first one!',
+    liveNow: 'LIVE',
     changePhoto: 'Change photo',
     bio: 'Bio',
     gender: 'Gender',

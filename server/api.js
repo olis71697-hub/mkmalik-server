@@ -760,6 +760,35 @@ router.post('/rooms', auth.requireAuth, wrap((req, res) => {
   res.status(201).json({ room: state.card(room), pin: room.pinCode });
 }));
 
+// ===========================================================================
+// HOST ANALYTICS — the rooms this account has hosted, with real numbers
+// (peak listeners, total joins, gift coins earned per room)
+// ===========================================================================
+router.get('/me/rooms', auth.requireAuth, wrap((req, res) => {
+  const rows = all(
+    `SELECT id, title, topic, category, theme, is_private, created_at, closed_at,
+            peak_users, total_joined, gift_coins
+     FROM rooms WHERE owner_id = ?
+     ORDER BY (closed_at IS NULL) DESC, created_at DESC LIMIT 50`, req.user.id);
+  const liveIds = new Set(state.liveRooms().filter((r) => r.ownerId === req.user.id).map((r) => r.id));
+  const rooms = rows.map((r) => ({
+    id: r.id, title: r.title, topic: r.topic, category: r.category, theme: r.theme,
+    isPrivate: !!r.is_private, createdAt: r.created_at, closedAt: r.closed_at,
+    isLive: liveIds.has(r.id),
+    peakUsers: r.peak_users || 0, totalJoined: r.total_joined || 0, giftCoins: r.gift_coins || 0,
+  }));
+  res.json({
+    rooms,
+    summary: {
+      totalRooms: rooms.length,
+      liveRooms: rooms.filter((r) => r.isLive).length,
+      totalJoined: rooms.reduce((s, r) => s + r.totalJoined, 0),
+      peakUsers: rooms.reduce((m, r) => Math.max(m, r.peakUsers), 0),
+      giftCoins: rooms.reduce((s, r) => s + r.giftCoins, 0),
+    },
+  });
+}));
+
 router.post('/rooms/:id/join', auth.requireAuth, wrap((req, res) => {
   const room = state.loadRoom(req.params.id);
   if (!room) throw notFound('Room not found or closed');

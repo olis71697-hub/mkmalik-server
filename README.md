@@ -184,6 +184,7 @@ window, or two phones on the same network:
 | "Your followed host is live" notifications | |
 | Sessions: JWT + "log out on all devices" (token revocation) | |
 | Daily bonus with consecutive-day streaks (150 → 300 coins) | |
+| Host analytics: every room you opened with joins, peak listeners and gift earnings (crash-safe persistence) | |
 | Moments, likes, comments | — |
 | Direct messages | — |
 | Accounts, sessions, follows | — |

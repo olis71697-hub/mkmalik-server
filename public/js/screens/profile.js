@@ -43,6 +43,7 @@ export function mountProfile(App) {
     scroll.append(el('div', { class: 'profile-actions' },
       el('button', { class: 'btn btn--primary', html: svg(ICON.edit) + ' ' + t('editProfile'), onclick: () => openPage.editProfile(App) }),
       el('button', { class: 'btn btn--ghost', html: svg(ICON.trophy) + ' ' + t('leaderboard'), onclick: () => openPage.leaderboard(App) }),
+      el('button', { class: 'btn btn--ghost', html: '🎤 ' + t('myRooms'), onclick: () => openPage.myRooms(App) }),
       el('button', { class: 'btn btn--ghost', html: svg(ICON.setting) + ' ' + t('settings'), onclick: () => openPage.settings(App) })));
 
     // wallet shortcut
