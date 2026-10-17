@@ -134,6 +134,7 @@ export const api = {
   rooms: (params = {}) => get('/rooms?' + qs(params)),
   myRooms: () => get('/me/rooms'),
   room: (id) => get('/rooms/' + id),
+  roomGifters: (id) => get(`/rooms/${id}/gifters`),
   createRoom: (body) => post('/rooms', body),
 
   // ---- people ----

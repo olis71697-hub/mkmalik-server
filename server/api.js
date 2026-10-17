@@ -709,6 +709,24 @@ router.get('/rooms', auth.optionalAuth, wrap((req, res) => {
   });
 }));
 
+// Per-room gift leaderboard — top gifters and receivers of THIS room.
+// Gift events persist after the room closes, so the board survives too.
+router.get('/rooms/:id/gifters', auth.optionalAuth, wrap((req, res) => {
+  const roomRow = get('SELECT id, title FROM rooms WHERE id = ?', req.params.id);
+  if (!roomRow) throw notFound('Room not found');
+  const gifters = all(
+    `SELECT u.id, u.display_name, u.username, u.avatar, u.level, u.vip,
+            SUM(g.coins) coins, COUNT(*) gifts
+     FROM gift_events g JOIN users u ON u.id = g.from_id
+     WHERE g.room_id = ? GROUP BY g.from_id ORDER BY coins DESC, gifts DESC LIMIT 5`, req.params.id);
+  const receivers = all(
+    `SELECT u.id, u.display_name, u.username, u.avatar, u.level, u.vip,
+            SUM(g.coins) coins, COUNT(*) gifts
+     FROM gift_events g JOIN users u ON u.id = g.to_id
+     WHERE g.room_id = ? GROUP BY g.to_id ORDER BY coins DESC, gifts DESC LIMIT 5`, req.params.id);
+  res.json({ room: { id: roomRow.id, title: roomRow.title }, gifters, receivers });
+}));
+
 router.get('/rooms/:id', auth.optionalAuth, wrap((req, res) => {
   const room = state.loadRoom(req.params.id);
   if (!room) throw notFound('Room not found or closed');

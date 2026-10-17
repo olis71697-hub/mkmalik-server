@@ -198,6 +198,10 @@ const DICT = {
     // profile
     editProfile: 'প্রোফাইল এডিট',
     myRooms: 'আমার রুম',
+    roomLeaderboard: 'রুম লিডারবোর্ড',
+    topGifters: 'টপ গিফটার',
+    topReceivers: 'টপ রিসিভার',
+    noGiftsYet: 'এই রুমে এখনো কোনো গিফট আসেনি',
     totalRooms: 'মোট রুম',
     totalListeners: 'মোট শ্রোতা',
     giftEarnings: 'গিফট-আয় (🪙)',
@@ -479,6 +483,10 @@ const DICT = {
 
     editProfile: 'Edit profile',
     myRooms: 'My rooms',
+    roomLeaderboard: 'Room leaderboard',
+    topGifters: 'Top gifters',
+    topReceivers: 'Top receivers',
+    noGiftsYet: 'No gifts in this room yet',
     totalRooms: 'Rooms hosted',
     totalListeners: 'Total listeners',
     giftEarnings: 'Gift earnings (🪙)',

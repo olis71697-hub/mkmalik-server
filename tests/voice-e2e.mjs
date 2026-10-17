@@ -129,6 +129,16 @@ const spent = rosePrice * 5;
 check('sender coins deducted', beforeA - afterA === spent, `${beforeA} → ${afterA} (rose=${rosePrice})`);
 check('receiver diamonds credited', afterB - beforeB === spent, `${beforeB} → ${afterB}`);
 
+R.section('room gift leaderboard');
+const lb = await apiFetch(`/api/rooms/${roomId}/gifters`);
+check('the room board ranks the gifters by coins sent',
+  lb.ok && lb.data?.gifters?.[0]?.id === A.user.id && lb.data.gifters[0].coins === spent,
+  `${lb.data?.gifters?.[0]?.display_name}: ${lb.data?.gifters?.[0]?.coins} 🪙 (${lb.data?.gifters?.[0]?.gifts} gift)`);
+check('and the receivers likewise',
+  lb.ok && lb.data?.receivers?.[0]?.id === B.user.id && lb.data.receivers[0].coins === spent,
+  `${lb.data?.receivers?.[0]?.display_name}: ${lb.data?.receivers?.[0]?.coins} 🪙`);
+
+
 R.section('diamond → coin exchange (real economy, no gateway)');
 const meB1 = (await apiFetch('/api/me', { token: B.token })).data.user;
 const ex = await apiFetch('/api/wallet/exchange', { method: 'POST', token: B.token, body: { diamonds: 50 } });
@@ -244,6 +254,11 @@ check('DM profanity is rejected', dmBad.ok === false && dmBad.code === 'chat_fil
 const badRoom = await apiFetch('/api/rooms', { method: 'POST', token: B.token, body: { title: 'khanki adda', category: 'party' } });
 check('room titles with profanity are refused', badRoom.status === 400 && badRoom.data?.code === 'chat_filtered',
   `HTTP ${badRoom.status} ${badRoom.data?.code}`);
+
+R.section('room gift leaderboard (a room with no gifts)');
+const lb0 = await apiFetch(`/api/rooms/${room3.room.id}/gifters`);
+check('a room with no gifts says so honestly', lb0.ok && lb0.data?.gifters?.length === 0 && lb0.data?.receivers?.length === 0,
+  `${lb0.data?.gifters?.length}/${lb0.data?.receivers?.length}`);
 
 R.section('host analytics — the rooms I hosted');
 const mrA = await apiFetch('/api/me/rooms', { token: A.token });

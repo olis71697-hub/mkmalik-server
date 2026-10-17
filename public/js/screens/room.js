@@ -682,6 +682,51 @@ function openSeatSheet(App, room, member, seatIndex) {
 function selectedGiftPriceHint() { return giftCatalog.length ? `${giftCatalog[0].emoji} ${compact(giftCatalog[0].price)}+` : ''; }
 
 /* ═══════════════════════════ members sheet ═══════════════════════════ */
+/* Room gift leaderboard — top gifters / receivers of this room. */
+function openRoomLeaderboard(App) {
+  if (!currentRoomId) return;
+  const panel = $('#sheetPanel');
+  panel.innerHTML = '';
+  $('#sheet').hidden = false;
+  const close = () => { $('#sheet').hidden = true; };
+  const head = () => {
+    panel.innerHTML = '';
+    panel.append(el('div', { class: 'sheet-grip' }),
+      el('div', { class: 'sheet-title' }, el('span', { text: '🏆 ' + t('roomLeaderboard') })));
+  };
+  head();
+  panel.append(el('div', { class: 'spin' }));
+
+  api.roomGifters(currentRoomId).then((r) => {
+    head();
+    const medal = (i) => ['🥇', '🥈', '🥉'][i] || `${i + 1}.`;
+    const mk = (u, i, flow) => el('div', { class: 'user-row', onclick: () => { close(); openPage.userProfile(App, u.id); } },
+      el('span', { style: { width: '24px', textAlign: 'center', fontWeight: 800 }, text: medal(i) }),
+      avatarImg(u.avatar, u.display_name || u.displayName, 'avatar--sm'),
+      el('div', { class: 'meta' },
+        el('div', { class: 'name' },
+          el('span', { text: u.display_name || u.displayName || '—' }),
+          u.vip ? el('span', { class: 'vip', text: 'VIP' }) : null),
+        el('div', { class: 'sub', text: `${flow} ${compact(u.coins)} 🪙 · ${u.gifts} ${isBn() ? 'টি গিফট' : 'gifts'}` })));
+    const section = (title, rows, flow) => {
+      if (!rows?.length) return;
+      panel.append(el('div', { class: 'section-head', style: { marginTop: '2px' } }, el('h2', { text: title })));
+      rows.forEach((u, i) => panel.append(mk(u, i, flow)));
+    };
+    if (!r.gifters?.length && !r.receivers?.length) {
+      panel.append(el('div', { class: 'empty-state', style: { padding: '26px' } },
+        el('div', { class: 'empty-emoji', text: '🎁' }),
+        el('p', { text: t('noGiftsYet') })));
+      return;
+    }
+    section('🎁 ' + t('topGifters'), r.gifters, '📤');
+    section('💎 ' + t('topReceivers'), r.receivers, '📥');
+  }).catch((e) => {
+    head();
+    panel.append(el('div', { class: 'empty-state' }, el('p', { text: e.message })));
+  });
+}
+
 function openMembersSheet(App) {
   if (!snap) return;
   const panel = $('#sheetPanel');
@@ -707,6 +752,12 @@ function openMembersSheet(App) {
   panel.append(
     el('div', { class: 'sheet-grip' }),
     el('div', { class: 'sheet-title' }, el('span', { text: '👥 ' + t('members') }), el('span', { class: 'sub', text: String(snap.members?.length || 0) })),
+    el('button', { class: 'list-row', style: { margin: '8px 12px 2px' }, onclick: () => { close(); openRoomLeaderboard(App); } },
+      el('span', { class: 'li-icon', text: '🏆' }),
+      el('span', { class: 'li-body' },
+        el('span', { class: 'li-t', text: t('roomLeaderboard') }),
+        el('span', { class: 'li-s', text: '🎁 ' + t('topGifters') + ' · 💎 ' + t('topReceivers') })),
+      el('span', { class: 'li-end', html: svg(ICON.chev) })),
   );
   if (speakers.length) {
     panel.append(el('div', { class: 'section-head', style: { marginTop: '0' } }, el('h2', { text: '🎙 ' + (isBn() ? 'কথা বলছেন' : 'On mic') })));
