@@ -58,6 +58,9 @@ export class VoiceEngine {
     this.direction = new Map();   // userId -> 'sendrecv' | 'sendonly' | 'recvonly'
     this.isSpeaker = false;
     this.muted = true;
+    this.speakerOn = true;
+    this.masterVolume = 1;
+    this.sinkId = '';
     this.levelTimer = null;
     this.audioCtx = null;
     this.analyser = null;
@@ -295,7 +298,7 @@ export class VoiceEngine {
   }
 
   // ── remote playback ──────────────────────────────────────────────────────
-  _attachRemoteAudio(peerId, stream) {
+  async _attachRemoteAudio(peerId, stream) {
     let audio = this.audioMap.get(peerId);
     if (!audio) {
       audio = new Audio();
@@ -307,7 +310,9 @@ export class VoiceEngine {
       this.audioMap.set(peerId, audio);
     }
     audio.srcObject = stream;
-    audio.volume = 1;
+    audio.volume = this.masterVolume;
+    audio.muted = !this.speakerOn;
+    if (this.sinkId) { try { await audio.setSinkId(this.sinkId); } catch (_) {} }
     audio.play().catch(() => {
       // Autoplay policy — surface it so the UI can ask for a tap.
       this.onState('autoplay-blocked');
@@ -376,6 +381,37 @@ export class VoiceEngine {
       this.onSpeaking(false);
       this.socket.emit('rtc:speaking', { speaking: false });
     }
+  }
+
+  // ── speaker & output devices ──────────────────────────────────────────────
+  /** Mute/unmute every remote stream (the room "speaker" toggle). */
+  setSpeakerEnabled(on) {
+    this.speakerOn = !!on;
+    for (const audio of this.audioMap.values()) audio.muted = !on;
+  }
+
+  /** Master volume 0..1 for all remote audio. */
+  setVolume(v) {
+    this.masterVolume = Math.max(0, Math.min(1, v));
+    for (const audio of this.audioMap.values()) audio.volume = this.masterVolume;
+  }
+
+  /** Route remote audio to a specific output device (speaker / earpiece /
+   *  wired headset / bluetooth). Best effort — Safari ignores setSinkId. */
+  async setSinkDevice(deviceId) {
+    this.sinkId = deviceId || '';
+    for (const audio of this.audioMap.values()) {
+      try { await audio.setSinkId(this.sinkId); } catch (_) { /* unsupported */ }
+    }
+  }
+
+  /** List available audio output devices. Labels appear after mic permission. */
+  async outputDevices() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.filter((d) => d.kind === 'audiooutput')
+        .map((d) => ({ id: d.deviceId, label: d.label || 'Speaker' }));
+    } catch (_) { return []; }
   }
 
   // ── diagnostics ──────────────────────────────────────────────────────────

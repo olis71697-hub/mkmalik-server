@@ -1,184 +1,194 @@
 <!DOCTYPE html>
-<html lang="bn" dir="ltr">
+<html lang="bn" dir="ltr" data-theme="dark">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no" />
-<meta name="theme-color" content="#ff5a1f" />
-<meta name="description" content="MK Malik — live group voice chat rooms. 10 mic seats, real-time audio, gifts and moments." />
-<title>MK Malik — Live Group Voice Chat</title>
+<meta name="theme-color" content="#0a0f0d" />
+<meta name="description" content="Panda Voice — লাইভ গ্রুপ ভয়েস চ্যাট। ১০টি মাইক সিট, রিয়েল-টাইম অডিও, গিফট আর মজার আড্ডা। 🐼" />
+<meta name="author" content="MK Malik" />
+<title>Panda Voice 🐼 — লাইভ ভয়েস রুম</title>
 
 <!-- Installable app -->
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="icon" type="image/png" sizes="64x64" href="icons/icon-64.png" />
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
 <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<meta name="apple-mobile-web-app-title" content="MK Malik" />
-<meta name="application-name" content="MK Malik" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Panda Voice" />
+<meta name="application-name" content="Panda Voice" />
 
-<link rel="stylesheet" href="css/app.css" />
+<link rel="stylesheet" href="css/panda.css" />
 </head>
 <body>
 
 <div id="boot" class="boot">
-  <div class="boot-logo">🎙️</div>
-  <div class="boot-name">MK Malik</div>
-  <div class="boot-sub">live voice rooms</div>
+  <div class="boot-logo"><img src="icons/icon-512.png" alt="Panda Voice" /></div>
+  <div class="boot-name">Panda <b>Voice</b></div>
+  <div class="boot-sub">১০ সিটের লাইভ ভয়েস রুম 🐼</div>
   <div class="boot-bar"><i></i></div>
 </div>
 
+<!-- ══════════════════════════ ONBOARDING ═══════════════════════════════ -->
+<section id="onboarding" class="app" hidden></section>
+
+<!-- ══════════════════════════ AUTH ════════════════════════════════════ -->
+<section id="authScreen" class="app" hidden></section>
+
+<!-- ══════════════════════════ MAIN APP ════════════════════════════════ -->
 <div id="app" class="app" hidden>
 
-  <!-- ══════════════════════════ EXPLORE (home) ══════════════════════════ -->
-  <section class="screen screen--explore" data-screen="explore">
+  <!-- ══════════════ HOME ══════════════ -->
+  <section class="screen" data-screen="home" hidden>
     <header class="topbar">
-      <nav class="tabs" id="exploreTabs">
-        <button class="tab" data-sort="related">Related</button>
-        <button class="tab" data-sort="hot">Hot</button>
-        <button class="tab is-active" data-sort="explore">Explore</button>
-      </nav>
+      <div class="brandmark"><img src="icons/icon-192.png" alt="" /></div>
+      <div class="topbar-title" style="font-size:17px">Panda <b style="color:var(--brand-2)">Voice</b></div>
       <div class="topbar-actions">
-        <button class="icon-btn" id="btnRank" aria-label="Ranking"><svg viewBox="0 0 24 24"><path d="M6 4h12v3a6 6 0 0 1-12 0V4Z"/><path d="M6 5H4v1.5A2.5 2.5 0 0 0 6.5 9M18 5h2v1.5A2.5 2.5 0 0 1 17.5 9"/><path d="M10 14h4l-.5 4h-3l-.5-4Z"/><path d="M8.5 20h7"/></svg></button>
-        <button class="icon-btn" id="btnSearch" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg></button>
-        <button class="icon-btn" id="btnDiscover" aria-label="Discover"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5 5-2Z"/></svg></button>
+        <button class="coin-pill" id="homeCoins" data-nav="wallet">🎁 0</button>
+        <button class="icon-btn" id="homeSearch" aria-label="Search" data-nav="discover">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>
+        </button>
+        <button class="icon-btn" id="homeBell" aria-label="Notifications" data-open="notifications">
+          <svg viewBox="0 0 24 24"><path d="M6 9a6 6 0 1 1 12 0c0 4 1.5 5.5 1.5 5.5h-15S6 13 6 9Z"/><path d="M10 18a2 2 0 0 0 4 0"/></svg>
+          <i class="dot" id="notifDot" hidden></i>
+        </button>
+        <button class="icon-btn" id="homeAvatar" aria-label="Profile" style="padding:2px" data-nav="profile"></button>
       </div>
     </header>
 
-    <div class="chips" id="exploreChips"></div>
+    <nav class="tabs seg" id="homeTabs" style="margin:0 14px 6px"></nav>
 
-    <div class="screen-body" id="exploreScroll">
-      <div class="grid" id="exploreGrid"></div>
-      <div class="empty-state" id="exploreEmpty" hidden>
-        <div class="empty-emoji">🛋️</div>
-        <h3>No live rooms here yet</h3>
-        <p>Be the first — open a room and start talking.</p>
-        <button class="btn btn--primary" data-action="create-room">Open a room</button>
-      </div>
+    <div class="screen-body" id="homeScroll">
+      <div class="ptr" id="homePtr" hidden>↓ টানুন রিফ্রেশ করতে</div>
+      <div id="homeOnline" class="center-note" style="padding:2px 0 10px;font-size:12px"></div>
+      <div id="homeFeed"></div>
       <div class="grid-spacer"></div>
     </div>
   </section>
 
-  <!-- ══════════════════════════ MOMENTS ═════════════════════════════════ -->
-  <section class="screen screen--moments" data-screen="moments" hidden>
+  <!-- ══════════════ DISCOVER ══════════════ -->
+  <section class="screen" data-screen="discover" hidden>
     <header class="topbar">
-      <nav class="tabs tabs--single"><span class="tab is-active">Moments</span></nav>
+      <div class="topbar-title" data-i18n="discover">ডিসকভার</div>
       <div class="topbar-actions">
-        <button class="icon-btn" id="btnMomentCompose" aria-label="New moment"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button class="icon-btn" id="discoverCreate" aria-label="Create room">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
       </div>
     </header>
-    <div class="screen-body" id="momentsScroll">
-      <div class="moments-list" id="momentsList"></div>
+    <div class="searchbar">
+      <div class="input-wrap">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>
+        <input id="discoverInput" type="search" placeholder="রুম, ইউজার বা আইডি খুঁজুন…" autocomplete="off" />
+      </div>
+    </div>
+    <div class="chips" id="discoverChips"></div>
+    <div class="screen-body" id="discoverScroll">
+      <div id="discoverRecent"></div>
+      <div id="discoverFeed"></div>
       <div class="grid-spacer"></div>
     </div>
   </section>
 
-  <!-- ══════════════════════════ CHAT ════════════════════════════════════ -->
-  <section class="screen screen--chat" data-screen="chat" hidden>
+  <!-- ══════════════ MESSAGES ══════════════ -->
+  <section class="screen" data-screen="messages" hidden>
     <header class="topbar">
-      <nav class="tabs tabs--single"><span class="tab is-active">Messages</span></nav>
+      <div class="topbar-title" data-i18n="messages">মেসেজ</div>
       <div class="topbar-actions">
-        <button class="icon-btn" id="btnNewChat" aria-label="New chat"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button class="icon-btn" id="msgNewChat" aria-label="New chat">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
       </div>
     </header>
-    <div class="screen-body" id="chatScroll">
-      <div class="conv-list" id="convList"></div>
-      <div class="grid-spacer"></div>
-    </div>
+    <div class="screen-body" id="msgScroll"><div id="convList"></div><div class="grid-spacer"></div></div>
   </section>
 
-  <!-- ══════════════════════════ PROFILE ═════════════════════════════════ -->
-  <section class="screen screen--profile" data-screen="profile" hidden>
-    <div class="screen-body" id="profileScroll">
-      <div class="profile" id="profileRoot"></div>
-      <div class="grid-spacer"></div>
-    </div>
+  <!-- ══════════════ WALLET ══════════════ -->
+  <section class="screen" data-screen="wallet" hidden>
+    <header class="topbar">
+      <div class="topbar-title" data-i18n="wallet">ওয়ালেট</div>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="walletHelp" aria-label="About coins">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M12 11v6"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="screen-body" id="walletScroll"></div>
   </section>
 
-  <!-- ══════════════════════════ BOTTOM NAV ══════════════════════════════ -->
+  <!-- ══════════════ PROFILE ══════════════ -->
+  <section class="screen" data-screen="profile" hidden>
+    <div class="screen-body" id="profileScroll" style="padding:0 0 16px"></div>
+  </section>
+
+  <!-- ══════════════ BOTTOM NAV ══════════════ -->
   <nav class="tabbar" id="tabbar">
-    <button class="tabbar-item is-active" data-go="explore">
+    <button class="tabbar-item is-active" data-go="home">
+      <svg viewBox="0 0 24 24"><path d="m4 11 8-7 8 7"/><path d="M6 10v10h12V10"/></svg>
+      <span>হোম</span>
+    </button>
+    <button class="tabbar-item" data-go="discover">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5 5-2Z"/></svg>
-      <span>Explore</span>
+      <span>ডিসকভার</span>
     </button>
-    <button class="tabbar-item" data-go="moments">
-      <svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="3"/><path d="M8 6l1.5-2h5L16 6"/><circle cx="12" cy="13" r="3.2"/></svg>
-      <span>Moments</span>
-    </button>
-    <button class="tabbar-create" data-action="create-room" aria-label="Open a room">
-      <span class="tabbar-create-inner"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
-    </button>
-    <button class="tabbar-item" data-go="chat">
+    <button class="tabbar-item" data-go="messages">
       <svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8Z"/></svg>
-      <span>Chat</span><i class="dot" id="chatDot" hidden></i>
+      <span>মেসেজ</span><i class="dot" id="chatDot" hidden></i>
+    </button>
+    <button class="tabbar-item" data-go="wallet">
+      <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h13v3"/><path d="M3 7v10a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1H5a2 2 0 0 1-2-2Z"/><circle cx="16.5" cy="14" r="1.2" fill="currentColor"/></svg>
+      <span>ওয়ালেট</span>
     </button>
     <button class="tabbar-item" data-go="profile">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
-      <span>Profile</span>
+      <span>প্রোফাইল</span>
     </button>
   </nav>
 
-  <!-- ══════════════════════════ ROOM (full screen) ══════════════════════ -->
+  <!-- ══════════════ VOICE ROOM (full screen) ══════════════ -->
   <div class="room" id="room" hidden>
+    <div class="net-strip" id="netStrip"></div>
     <header class="room-top">
-      <button class="icon-btn icon-btn--glass" id="roomBack" aria-label="Leave"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
-      <div class="room-head" id="roomHead">
-        <div class="room-host">
-          <img class="avatar avatar--xs" id="roomHostAvatar" alt="" />
-          <div class="room-host-meta">
-            <span class="room-host-name" id="roomHostName">Host</span>
-            <span class="room-host-id" id="roomHostId">ID 000000</span>
-          </div>
-        </div>
-      </div>
-      <div class="room-top-actions">
+      <button class="icon-btn icon-btn--glass" id="roomBack" aria-label="Leave">
+        <svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg>
+      </button>
+      <div class="room-head" id="roomHead"></div>
+      <div class="room-top-actions" style="display:flex;gap:6px">
         <div class="room-box" id="roomBox" title="Room ID">
           <svg viewBox="0 0 24 24"><path d="M4 7h16v12H4z"/><path d="M4 7l2-3h12l2 3"/><path d="M9.5 13.5h5"/></svg>
-          <span id="roomBoxText">000000</span>
+          <span id="roomBoxText">—</span>
         </div>
-        <button class="icon-btn icon-btn--glass" id="roomMore" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button>
+        <button class="icon-btn icon-btn--glass" id="roomMore" aria-label="More">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
+        </button>
       </div>
     </header>
 
-    <div class="room-banner" id="roomBanner">
-      <div class="room-title-row">
-        <span class="room-live-dot"></span>
-        <h2 id="roomTitle">Room</h2>
-      </div>
-      <p id="roomTopic" class="room-topic"></p>
-      <div class="room-stats" id="roomStats"></div>
-    </div>
+    <div class="room-banner" id="roomBanner"></div>
 
     <div class="room-scroll" id="roomScroll">
       <div class="seats" id="seats"></div>
-      <div class="room-empty-slots" id="roomSlots"></div>
-
-      <div class="room-chat" id="roomChat">
+      <div class="room-chat" id="roomChatBox">
         <div class="chat-log" id="chatLog"></div>
       </div>
-      <div class="room-chat-spacer"></div>
+      <div style="height:10px"></div>
     </div>
 
-    <div class="room-actions" id="roomActions">
-      <button class="mic-btn" id="micBtn">
-        <svg viewBox="0 0 24 24" class="ic-mic"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
-        <svg viewBox="0 0 24 24" class="ic-micoff"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/><path d="m4 4 16 16"/></svg>
-        <span id="micLabel">Join mic</span>
-      </button>
-      <button class="act-btn" id="giftBtn" aria-label="Gift"><svg viewBox="0 0 24 24"><path d="M4 11h16v9H4z"/><path d="M3 7h18v4H3z"/><path d="M12 7v13"/><path d="M12 7S10.5 3 8 3a2.5 2.5 0 0 0 0 4"/><path d="M12 7s1.5-4 4-4a2.5 2.5 0 0 1 0 4"/></svg><span>Gift</span></button>
-      <button class="act-btn" id="handBtn" aria-label="Raise hand"><svg viewBox="0 0 24 24"><path d="M8 11V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M11 10V4.5a1.5 1.5 0 0 1 3 0V11"/><path d="M14 10.5V6a1.5 1.5 0 0 1 3 0v9a6 6 0 0 1-6 6h-1a6 6 0 0 1-5.2-3L4 15.5a1.6 1.6 0 0 1 2.6-1.8L8 15"/></svg><span>Hand</span></button>
-      <button class="act-btn" id="chatBtn" aria-label="Chat"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8Z"/></svg><span>Chat</span></button>
-      <button class="act-btn" id="shareBtn" aria-label="Share"><svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.6 6.8-4M8.6 13.4l6.8 4"/></svg><span>Share</span></button>
-    </div>
+    <div class="reaction-bar" id="reactionBar" hidden></div>
+
+    <div class="room-actions" id="roomActions"></div>
 
     <form class="room-inputbar" id="roomInputBar" hidden>
-      <input id="roomInput" type="text" placeholder="Say something…" maxlength="500" autocomplete="off" />
-      <button type="submit" class="send-btn" aria-label="Send"><svg viewBox="0 0 24 24"><path d="m4 12 16-8-6 16-3-6-7-2Z"/></svg></button>
+      <input id="roomInput" type="text" placeholder="কিছু লিখুন…" maxlength="500" autocomplete="off" />
+      <button type="submit" class="send-btn" aria-label="Send">
+        <svg viewBox="0 0 24 24"><path d="m4 12 16-8-6 16-3-6-7-2Z"/></svg>
+      </button>
     </form>
   </div>
 
-  <!-- host / seat management sheet -->
+  <!-- host / members / tools sheet -->
   <div class="sheet" id="sheet" hidden>
     <div class="sheet-scrim" data-close="sheet"></div>
     <div class="sheet-panel" id="sheetPanel"></div>
@@ -193,12 +203,12 @@
   <div class="toasts" id="toasts"></div>
   <div class="fx-layer" id="fxLayer"></div>
 
-  <!-- Install prompt: shown when the browser says the app can be installed -->
+  <!-- Install prompt -->
   <div class="install-bar" id="installBar" hidden>
     <img class="install-icon" src="icons/icon-192.png" alt="" />
     <div class="install-text">
-      <b>Install MK Malik</b>
-      <span>Open it like a real app — full screen, right from your home screen</span>
+      <b>Panda Voice ইনস্টল করুন</b>
+      <span>হোম স্ক্রিন থেকে অ্যাপের মতো ব্যবহার করুন</span>
     </div>
     <button class="btn btn--primary btn--sm" id="installBtn">Install</button>
     <button class="icon-btn" id="installClose" aria-label="Dismiss">
@@ -206,6 +216,9 @@
     </button>
   </div>
 </div>
+
+<div id="pageLayer"></div>
+<div class="toasts" id="pageToasts" style="z-index:200"></div>
 
 <script type="module" src="js/app.js"></script>
 </body>

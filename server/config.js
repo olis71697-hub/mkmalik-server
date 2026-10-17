@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 // Load .env (if present) before anything reads process.env
 // ---------------------------------------------------------------------------
+
 try { require('dotenv').config(); } catch (_) { /* dotenv optional */ }
 
 const path = require('node:path');
@@ -25,6 +26,13 @@ const config = {
   port: num(process.env.PORT, 8080),
   host: process.env.HOST || '0.0.0.0',
 
+  // Brand -----------------------------------------------------------------
+  brand: {
+    name: 'Panda Voice',
+    short: 'Panda',
+    tagline: '১০ সিটের লাইভ ভয়েস রুম 🐼',
+  },
+
   // Public base URL used when generating absolute links (invites, share cards).
   publicUrl: (process.env.PUBLIC_URL || '').replace(/\/+$/, ''),
 
@@ -40,7 +48,7 @@ const config = {
       fs.writeFileSync(p, s, { mode: 0o600 });
       return s;
     } catch (_) {
-      return 'mkmalik-dev-secret-' + ROOT;
+      return 'panda-voice-dev-secret-' + ROOT;
     }
   })(),
   jwtTtl: process.env.JWT_TTL || '30d',
@@ -52,7 +60,7 @@ const config = {
 
   // Voice rooms -----------------------------------------------------------
   room: {
-    micSeats: 10,            // exactly 10 mic seats, like Saada
+    micSeats: 10,            // exactly 10 mic seats per room
     maxListeners: num(process.env.MAX_LISTENERS, 60),
     emptyRoomTtlMs: 1000 * 60 * 5,   // room closes 5 min after the last person leaves
     maxRoomsPerUser: 1,
@@ -74,19 +82,59 @@ const config = {
     giftsPer10s: 8,
     followPerMin: 30,
     momentsPerHour: 12,
+    reactionsPer10s: 12,
     maxBioLen: 200,
     maxMsgLen: 500,
     maxRoomTitleLen: 60,
     minPasswordLen: 6,
   },
 
+  // Phone OTP login -------------------------------------------------------
+  // With no SMS gateway configured the code is returned in the API response
+  // (and printed in the server log) so the flow is fully testable. Set
+  // SMS_API_URL (+ SMS_API_KEY) to deliver codes for real.
+  otp: {
+    ttlMs: 5 * 60 * 1000,
+    length: 6,
+    maxPerHour: num(process.env.OTP_PER_HOUR, 12),
+    smsApiUrl: process.env.SMS_API_URL || '',
+    smsApiKey: process.env.SMS_API_KEY || '',
+    smsFrom: process.env.SMS_FROM || 'PandaVoice',
+    // Without an SMS gateway the OTP endpoint answers 503 honestly.
+    // Set OTP_DEV_BYPASS=1 only for local development to print codes
+    // to the server console / return them to the client.
+    devBypass: bool(process.env.OTP_DEV_BYPASS, false),
+  },
+
+  // Google Sign-In --------------------------------------------------------
+  // Set GOOGLE_CLIENT_ID to the "Web client" OAuth ID from Google Cloud
+  // Console. Until then the endpoint answers 503 with setup instructions.
+  googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+
+  // Wallet / coin purchases ------------------------------------------------
+  // There is no mock crediting. Purchases work only when a REAL gateway is
+  // wired: PAYMENTS_MODE=live + PURCHASE_VERIFY_URL + PURCHASE_VERIFY_KEY
+  // pointing at your gateway's server-side verification endpoint
+  // (SSLCommerz/bKash/Nagad/Stripe etc.). The server refuses to credit coins
+  // unless the gateway confirms the payment; until then the wallet shows an
+  // honest "not configured" state.
+  payments: {
+    mode: process.env.PAYMENTS_MODE || 'unconfigured',   // 'live' is the only purchasing mode
+    verifyUrl: process.env.PURCHASE_VERIFY_URL || '',
+    verifyKey: process.env.PURCHASE_VERIFY_KEY || '',
+    currency: process.env.PAYMENT_CURRENCY || 'BDT',
+  },
+
   corsOrigins: (process.env.CORS_ORIGINS || '*').split(',').map((s) => s.trim()).filter(Boolean),
   trustProxy: bool(process.env.TRUST_PROXY, true),
 
-  // When on, a visitor with no saved session is dropped straight into the demo
-  // account instead of the sign-in screen — so the app is immediately usable
-  // for evaluation. Turn off for a real public deployment.
-  demoAutoLogin: bool(process.env.DEMO_AUTO_LOGIN, process.env.NODE_ENV !== 'production'),
+  // Server-side content safety: unambiguous profanity/slurs (Bengali +
+  // English + romanized) are rejected on the server in chat, DMs, room
+  // titles and profile text, and repeat offenders get a temporary chat
+  // timeout. Set CHAT_FILTER=off to disable for your deployment.
+  chatFilter: {
+    enabled: bool(process.env.CHAT_FILTER, true),
+  },
 
   // WebRTC — STUN is always on; TURN relays media when both peers sit behind
   // symmetric NATs. Point these at your own coturn / hosted TURN to make voice
@@ -103,5 +151,26 @@ const config = {
 };
 
 config.isProd = config.env === 'production';
+
+/**
+ * [id, name, emoji, price, anim, sort] — the Panda Voice gift wall.
+ * Product data, not seed data: every fresh database bootstraps this catalog.
+ */
+config.GIFTS = [
+  ['heart',     'Heart',         '❤️', 10,   'float', 1],
+  ['rose',      'Rose',          '🌹', 20,   'float', 2],
+  ['flower',    'Flower',        '🌸', 50,   'float', 3],
+  ['star',      'Star',          '⭐', 88,   'float', 4],
+  ['love',      'Love',          '😍', 120,  'float', 5],
+  ['coffee',    'Coffee',        '☕', 180,  'float', 6],
+  ['teddy',     'Teddy Bear',    '🧸', 299,  'float', 7],
+  ['cake',      'Birthday Cake', '🎂', 520,  'float', 8],
+  ['lion',      'Lion',          '🦁', 888,  'launch', 9],
+  ['crown',     'Golden Crown',  '👑', 1888, 'shine', 10],
+  ['car',       'Super Car',     '🏎️', 3888, 'launch', 11],
+  ['castle',    'Dream Castle',  '🏰', 8888, 'shine', 12],
+  ['dragon',    'Dragon',        '🐉', 18888, 'epic', 13],
+  ['galaxy',    'Galaxy',        '🌌', 32888, 'epic', 14],
+];
 
 module.exports = config;

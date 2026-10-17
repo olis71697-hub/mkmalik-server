@@ -1,8 +1,8 @@
 {
   "id": "./index.html?source=pwa",
-  "name": "MK Malik — Live Group Voice Chat",
-  "short_name": "MK Malik",
-  "description": "Live group voice rooms with 10 mic seats. Talk, sing, host parties and send gifts in real time.",
+  "name": "Panda Voice — লাইভ ভয়েস রুম",
+  "short_name": "Panda Voice",
+  "description": "Panda Voice — ১০ সিটের লাইভ গ্রুপ ভয়েস চ্যাট রুম। বন্ধুদের সাথে কথা বলুন, গিফট পাঠান, নিজের রুম হোস্ট করুন। 🐼",
   "start_url": "./index.html?source=pwa",
   "scope": "./",
   "display": "standalone",
@@ -11,8 +11,8 @@
     "minimal-ui"
   ],
   "orientation": "portrait",
-  "background_color": "#ffffff",
-  "theme_color": "#ff5a1f",
+  "background_color": "#0a0f0d",
+  "theme_color": "#0a0f0d",
   "lang": "bn",
   "dir": "ltr",
   "categories": [
@@ -42,7 +42,7 @@
   ],
   "shortcuts": [
     {
-      "name": "Open a room",
+      "name": "রুম তৈরি করুন",
       "short_name": "New room",
       "url": "./index.html?action=create",
       "icons": [
@@ -53,9 +53,9 @@
       ]
     },
     {
-      "name": "My profile",
-      "short_name": "Profile",
-      "url": "./index.html#profile",
+      "name": "লিডারবোর্ড",
+      "short_name": "Ranking",
+      "url": "./index.html#leaderboard",
       "icons": [
         {
           "src": "icons/icon-192.png",

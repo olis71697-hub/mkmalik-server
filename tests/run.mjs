@@ -39,6 +39,7 @@ const SUITES = [
   'static-host.mjs',
   'fresh-visit.mjs',
   'pwa.mjs',
+  'push.mjs',
   'voice-e2e.mjs',
   'peer-topology.mjs',
   'presence.mjs',

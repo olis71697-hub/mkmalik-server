@@ -1,5 +1,5 @@
 /*
- * MK Malik — integration test.
+ * Panda Voice — integration test.
  * Start the server first (npm start), then:  npm test
  * Override the target with BASE_URL=http://host:port
  */
@@ -123,8 +123,43 @@ check('gift broadcast for the animation', fx?.gift?.emoji === '🌹' && fx?.qty 
 
 const afterA = (await apiFetch('/api/me', { token: A.token })).data.user.coins;
 const afterB = (await apiFetch('/api/me', { token: B.token })).data.user.diamonds;
-check('sender coins deducted', beforeA - afterA === 50, `${beforeA} → ${afterA}`);
-check('receiver diamonds credited', afterB - beforeB === 50, `${beforeB} → ${afterB}`);
+const { gifts: catalog } = (await apiFetch('/api/gifts')).data;
+const rosePrice = catalog.find((g) => g.id === 'rose')?.price || 10;
+const spent = rosePrice * 5;
+check('sender coins deducted', beforeA - afterA === spent, `${beforeA} → ${afterA} (rose=${rosePrice})`);
+check('receiver diamonds credited', afterB - beforeB === spent, `${beforeB} → ${afterB}`);
+
+R.section('room gift leaderboard');
+const lb = await apiFetch(`/api/rooms/${roomId}/gifters`);
+check('the room board ranks the gifters by coins sent',
+  lb.ok && lb.data?.gifters?.[0]?.id === A.user.id && lb.data.gifters[0].coins === spent,
+  `${lb.data?.gifters?.[0]?.display_name}: ${lb.data?.gifters?.[0]?.coins} 🪙 (${lb.data?.gifters?.[0]?.gifts} gift)`);
+check('and the receivers likewise',
+  lb.ok && lb.data?.receivers?.[0]?.id === B.user.id && lb.data.receivers[0].coins === spent,
+  `${lb.data?.receivers?.[0]?.display_name}: ${lb.data?.receivers?.[0]?.coins} 🪙`);
+
+
+R.section('diamond → coin exchange (real economy, no gateway)');
+const meB1 = (await apiFetch('/api/me', { token: B.token })).data.user;
+const ex = await apiFetch('/api/wallet/exchange', { method: 'POST', token: B.token, body: { diamonds: 50 } });
+const meB2 = (await apiFetch('/api/me', { token: B.token })).data.user;
+check('exchange credits coins minus the 10% fee',
+  ex.ok && ex.data?.credited === 45 && meB2.coins - meB1.coins === 45 && meB1.diamonds - meB2.diamonds === 50,
+  `50 💎 → ${ex.data?.credited} 🪙 (${meB1.coins}→${meB2.coins} coins)`);
+const exSmall = await apiFetch('/api/wallet/exchange', { method: 'POST', token: B.token, body: { diamonds: 5 } });
+check('exchange enforces the minimum', !exSmall.ok && exSmall.data?.code === 'exchange_min', `HTTP ${exSmall.status} ${exSmall.data?.code}`);
+
+R.section('purchases stay honest without a real gateway');
+const pu = await apiFetch('/api/wallet/purchase', {
+  method: 'POST', token: A.token,
+  body: { packageId: 'p100', paymentMethod: 'bkash', paymentRef: 'MOCK-TRYFAKE123' },
+});
+check('no mock purchase is ever credited', pu.status === 503 && pu.data?.code === 'payments_not_configured',
+  `HTTP ${pu.status} ${pu.data?.code}`);
+const otpTry = await apiFetch('/api/auth/otp/request', { method: 'POST', body: { phone: '01700000000' } });
+check('phone OTP stays disabled until an SMS gateway exists',
+  otpTry.status === 503 && otpTry.data?.code === 'sms_not_configured',
+  `HTTP ${otpTry.status} ${otpTry.data?.code}`);
 
 // client may not mint coins
 const cheat = await emitAck(sockA, 'gift:send', { giftId: 'dragon', toUserId: B.user.id, qty: 99 });
@@ -161,6 +196,108 @@ check('host can remove someone from the mic', kickRes.ok);
 const endRes = await emitAck(s1, 'room:end', {});
 check('host can end the room', endRes.ok);
 
+R.section('account security: sessions & daily-bonus streak');
+const { createRequire } = await import('node:module');
+const bonusMod = createRequire(import.meta.url)('../server/bonus.js');
+check('streak math: consecutive days escalate, gaps reset, caps at 7',
+  bonusMod.streakFor(null, 100, 0).streak === 1
+  && bonusMod.streakFor(99, 100, 3).streak === 4
+  && bonusMod.streakFor(50, 100, 6).streak === 1
+  && bonusMod.streakFor(100, 100, 5).claimed === true
+  && bonusMod.streakFor(99, 100, 9).streak === 7,
+  `day1=${bonusMod.awardFor(150, 1)} day7=${bonusMod.awardFor(150, 7)} coins`);
+
+const E = await freshUser('Security');
+const b1 = await apiFetch('/api/me/daily-bonus', { method: 'POST', token: E.token });
+check('daily bonus claimed (streak day 1)', b1.ok && b1.data?.awarded === 150 && b1.data?.streak === 1,
+  `+${b1.data?.awarded} 🪙 streak ${b1.data?.streak}`);
+const b2 = await apiFetch('/api/me/daily-bonus', { method: 'POST', token: E.token });
+check('daily bonus is once per day', b2.status === 400 && b2.data?.code === 'bonus_claimed', b2.data?.code);
+
+const lo = await apiFetch('/api/auth/logout-all', { method: 'POST', token: E.token });
+check('log out everywhere succeeds', lo.ok);
+const deadTok = await apiFetch('/api/me', { token: E.token });
+check('the old token is dead on every device', deadTok.status === 401, `HTTP ${deadTok.status}`);
+const relog = await apiFetch('/api/auth/login', { method: 'POST', body: { username: E.user.username, password: 'test1234' } });
+check('a fresh sign-in still works afterwards', relog.ok && !!relog.data?.token);
+
+R.section('chat safety filter (server-side, bn + en + evasion)');
+// fresh socket in a fresh room
+const room3 = await createRoom(A.token, { title: 'Safety filter room', category: 'chat' });
+const f1 = await connect(A.token);
+await emitAck(f1, 'room:join', { roomId: room3.room.id });
+
+// clean message passes before anything else
+const stillOk = await emitAck(f1, 'chat:send', { body: 'chat still works fine 🙂' });
+check('clean messages pass the filter', stillOk.ok, stillOk.error);
+
+const profanityEn = await emitAck(f1, 'chat:send', { body: 'you are a fucking idiot' });
+check('English profanity is rejected on the server', profanityEn.ok === false && profanityEn.code === 'chat_filtered',
+  profanityEn.code || profanityEn.error);
+const profanityBn = await emitAck(f1, 'chat:send', { body: 'তুমি একটা মাগি' });
+check('Bengali profanity is rejected', profanityBn.ok === false && profanityBn.code === 'chat_filtered', profanityBn.code);
+const evasion = await emitAck(f1, 'chat:send', { body: 'f.u.c.k you all' });
+check('separator evasion (f.u.c.k) is caught', evasion.ok === false && evasion.code === 'chat_filtered', evasion.code);
+
+// three strikes → the next (clean) message hits a temporary timeout
+const afterStrikes = await emitAck(f1, 'chat:send', { body: 'totally clean words now' });
+check('repeat offenders get a temporary chat timeout',
+  afterStrikes.ok === false && afterStrikes.code === 'chat_timeout',
+  afterStrikes.code + ' — ' + (afterStrikes.error || '').slice(0, 44));
+
+// DM filter (socket), via the untouched user B
+const f2 = await connect(B.token);
+const dmBad = await emitAck(f2, 'dm:send', { toUserId: A.user.id, body: 'sh1t happens, magi' });
+check('DM profanity is rejected', dmBad.ok === false && dmBad.code === 'chat_filtered', dmBad.code);
+
+// room titles with profanity are refused (REST)
+const badRoom = await apiFetch('/api/rooms', { method: 'POST', token: B.token, body: { title: 'khanki adda', category: 'party' } });
+check('room titles with profanity are refused', badRoom.status === 400 && badRoom.data?.code === 'chat_filtered',
+  `HTTP ${badRoom.status} ${badRoom.data?.code}`);
+
+R.section('room gift leaderboard (a room with no gifts)');
+const lb0 = await apiFetch(`/api/rooms/${room3.room.id}/gifters`);
+check('a room with no gifts says so honestly', lb0.ok && lb0.data?.gifters?.length === 0 && lb0.data?.receivers?.length === 0,
+  `${lb0.data?.gifters?.length}/${lb0.data?.receivers?.length}`);
+
+R.section('download my data — full account export');
+const exNo = await apiFetch('/api/me/export');
+check('export requires signing in', exNo.status === 401, `HTTP ${exNo.status}`);
+
+// B sends A a private DM, then A exports — it must be in A's export…
+await apiFetch(`/api/chat/${A.user.id}/messages`, { method: 'POST', token: B.token, body: { body: 'export-secret-msg-42' } });
+const exA = await apiFetch('/api/me/export', { token: A.token });
+const exAjson = JSON.stringify(exA.data);
+check('the export contains the whole account',
+  exA.ok && exA.data?.account?.username === A.user.username
+  && exA.data?.coinLedger?.length >= 1 && exA.data?.roomsHosted?.length >= 1
+  && exA.data?.settings?.language,
+  `${exA.data?.coinLedger?.length} ledger rows, ${exA.data?.roomsHosted?.length} rooms`);
+check("and A's DMs (including B's message)", exAjson.includes('export-secret-msg-42'));
+
+// …but never anyone else's data
+const exB = await apiFetch('/api/me/export', { token: B.token });
+const exBjson = JSON.stringify(exB.data);
+check("another user's export is their own account, with their side of the DM",
+  exB.ok && exB.data?.account?.username === B.user.username
+  && exB.data?.account?.id !== A.user.id
+  && exBjson.includes('export-secret-msg-42'),
+  `account: ${exB.data?.account?.username}`);
+check('export carries no password hashes or secret keys',
+  !exAjson.includes('password_hash') && !exAjson.includes('jwtSecret') && !exAjson.includes('"p256dh"'));
+
+R.section('host analytics — the rooms I hosted');
+const mrA = await apiFetch('/api/me/rooms', { token: A.token });
+check('the host sees every room they opened', mrA.ok && mrA.data?.rooms?.length >= 3 && mrA.data?.summary?.totalRooms >= 3,
+  `${mrA.data?.rooms?.length} rooms, ${mrA.data?.summary?.totalJoined} joins`);
+check('per-room stats are real numbers and gift coins are tracked',
+  mrA.data.rooms.every((r) => typeof r.totalJoined === 'number' && typeof r.peakUsers === 'number' && typeof r.giftCoins === 'number')
+  && mrA.data.summary.giftCoins >= 100,
+  `giftCoins ${mrA.data?.summary?.giftCoins} 🪙`);
+const mrB = await apiFetch('/api/me/rooms', { token: B.token });
+check('someone who never hosted sees none', mrB.ok && mrB.data?.rooms?.length === 0, `${mrB.data?.rooms?.length} rooms`);
+
+f1.disconnect(); f2.disconnect();
 s1.disconnect(); s2.disconnect(); sockA.disconnect(); sockB.disconnect();
 
 process.exit(R.finish() ? 0 : 1);

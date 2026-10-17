@@ -7,14 +7,14 @@ const { unauthorized } = require('./util');
 
 function sign(user) {
   return jwt.sign(
-    { uid: user.id, un: user.username, r: user.role },
+    { uid: user.id, un: user.username, r: user.role, tv: user.token_version || 0 },
     config.jwtSecret,
-    { expiresIn: config.jwtTtl, issuer: 'mkmalik' }
+    { expiresIn: config.jwtTtl, issuer: 'panda-voice' }
   );
 }
 
 function verify(token) {
-  return jwt.verify(token, config.jwtSecret, { issuer: 'mkmalik' });
+  return jwt.verify(token, config.jwtSecret, { issuer: 'panda-voice', ignoreExpiration: false });
 }
 
 function userFromToken(token) {
@@ -22,6 +22,10 @@ function userFromToken(token) {
   try { payload = verify(token); } catch (_) { throw unauthorized('Session expired — please sign in again'); }
   const user = get('SELECT * FROM users WHERE id = ?', payload.uid);
   if (!user) throw unauthorized('Account not found');
+  // token_version: "log out everywhere" bumps it, killing every old session
+  if ((payload.tv || 0) !== (user.token_version || 0)) {
+    throw unauthorized('সব ডিভাইস থেকে লগআউট করা হয়েছে — আবার সাইন ইন করুন');
+  }
   return user;
 }
 

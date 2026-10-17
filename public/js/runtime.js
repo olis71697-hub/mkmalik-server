@@ -8,7 +8,8 @@
      • served from a static host         → the backend is found through a small
                                            hint file, and the app talks to it
                                            cross-origin
-     • no backend reachable at all       → the in-browser engine takes over
+     • no backend reachable at all       → the app shows an honest "can't reach
+                                           the server" screen. Never fake data.
 
    Every path here is RELATIVE, so the app also works under a sub-path like
    /gh/user/repo@main/public/ or /mkmalik-server/.
@@ -28,7 +29,10 @@ export const rel = (p) => BASE + String(p).replace(/^\/+/, '');
  * host can still reach a real backend that moves around.
  */
 export const BACKEND_HINT_URLS = [
-  'https://raw.githubusercontent.com/olis71697-hub/mkmalik-server/arena/bdc831c9-mkmalik-server/backend.json',
+  // this branch first (fresh while this session runs), then the default
+  // branch (kept fresh by the scheduled live runs long after this session)
+  'https://raw.githubusercontent.com/olis71697-hub/mkmalik-server/arena/e87dd7c5-mkmalik-server/backend.json',
+  'https://raw.githubusercontent.com/olis71697-hub/mkmalik-server/main/backend.json',
   rel('backend.json'),
 ];
 
@@ -38,11 +42,12 @@ const sameOrigin = () => rel('api');
 let backendOrigin = '';           // '' → the app's own origin
 
 export const mode = {
-  server: false,
-  local: false,
+  server: false,          // a real backend answered /api/health
+  offline: false,         // nothing answered — the app cannot run
   crossOrigin: false,
   checked: false,
   checkedAt: 0,
+  features: null,
 };
 
 /** Origin of the live server, or '' when it is this same origin. */
@@ -76,7 +81,7 @@ export async function probeBackend(origin, timeoutMs = 4000) {
     const data = await res.json().catch(() => null);
     // A static host that answers /api/health with HTML must not fool us.
     if (data && typeof data === 'object' && data.ok !== undefined) {
-      if (data.demoAutoLogin !== undefined) mode.demoAutoLogin = !!data.demoAutoLogin;
+      if (data.features) mode.features = data.features;
       return origin || sameOrigin();
     }
   } catch (_) { /* nothing here */ }
@@ -116,21 +121,21 @@ async function discoverAdvertisedBackend() {
  *   1. an explicit ?backend= override (remembered afterwards)
  *   2. a backend on this very origin — the app is being served by the server
  *   3. an advertised backend (static host, moving backend)
- *   4. nowhere → the in-browser engine
+ *   4. nowhere → offline: the app says so instead of inventing data
  */
 export async function detectMode({ timeoutMs = 3500, force = false } = {}) {
   if (mode.checked && !force) return mode;
   mode.server = false;
-  mode.local = false;
+  mode.offline = false;
 
   let override = '';
   try {
     const param = new URLSearchParams(location.search).get('backend');
     if (param) {
       override = param;
-      localStorage.setItem('mkmalik.backend', param);
+      localStorage.setItem('panda.backend', param);
     } else {
-      override = localStorage.getItem('mkmalik.backend') || '';
+      override = localStorage.getItem('panda.backend') || '';
     }
   } catch (_) {}
 
@@ -158,11 +163,11 @@ export async function detectMode({ timeoutMs = 3500, force = false } = {}) {
   }
 
   setBackend('');
-  mode.local = true;
+  mode.offline = true;
   mode.checked = true;
   mode.checkedAt = Date.now();
   return mode;
 }
 
-export const isLocal = () => mode.local;
 export const isServer = () => mode.server;
+export const isOffline = () => mode.offline;

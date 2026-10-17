@@ -1,5 +1,5 @@
 /*
- * MK Malik — integration test: presence.
+ * Panda Voice — integration test: presence.
  *
  * A phone that backgrounds the app has its timers throttled or suspended, so
  * heartbeat pings stop arriving. That must NOT cost the user their mic seat:

@@ -1,5 +1,5 @@
 /*
- * MK Malik — integration test: PWA installability.
+ * Panda Voice — integration test: PWA installability.
  *
  * Checks the pieces a browser needs before it will offer to install the app:
  * a valid manifest, reachable icons, a registered service worker, and the
@@ -44,7 +44,7 @@ check('shortcuts stay inside the app',
   (man.shortcuts || []).map((s) => s.url).join(', '));
 check('manifest icons are relative', man.icons?.every((i) => !i.src.startsWith('/')),
   (man.icons || []).map((i) => i.src).join(', '));
-check('theme_color matches the design', man.theme_color === '#ff5a1f', man.theme_color);
+check('theme_color matches the design', man.theme_color === '#0a0f0d', man.theme_color);
 
 const purposes = (man.icons || []).map((i) => i.purpose || 'any');
 check('declares 192 and 512 icons',
@@ -83,7 +83,7 @@ check('links the manifest', /rel="manifest"\s+href="manifest\.json"/.test(html))
 check('index.html has no absolute asset paths', !/(?:href|src)="\//.test(html));
 check('has an apple-touch-icon for iOS', /rel="apple-touch-icon"/.test(html));
 check('declares apple-mobile-web-app-capable', /apple-mobile-web-app-capable"\s+content="yes"/.test(html));
-check('theme-color is the brand orange', /name="theme-color"\s+content="#ff5a1f"/.test(html));
+check('theme-color is the brand green-dark', /name="theme-color"\s+content="#0a0f0d"/.test(html));
 check('has an in-app install prompt', /id="installBar"/.test(html) && /id="installBtn"/.test(html));
 
 // ── the app registers the worker ───────────────────────────────────────────
@@ -92,6 +92,21 @@ const appJs = fs.readFileSync(path.join(ROOT, 'js/app.js'), 'utf8');
 check('app registers the service worker',
   /serviceWorker\.register\(rel\('sw\.js'\)\)/.test(appJs), 'rel(\'sw.js\')');
 check('app handles beforeinstallprompt', appJs.includes('beforeinstallprompt'));
+// ── the in-app download page ───────────────────────────────────────────────
+check('app exposes the native install trigger', /export (async )?function triggerInstall/.test(appJs) && /export function installAvailable/.test(appJs));
+const extraSrc = fs.readFileSync(path.join(ROOT, 'js/screens/extra.js'), 'utf8');
+check('settings links to a download/install page',
+  /openPage\.install =/.test(extraSrc) && extraSrc.includes('downloadApp'));
+check('the download page fires the native prompt when available', extraSrc.includes('triggerInstall'));
+check('the download page covers browsers without a prompt (manual steps)',
+  extraSrc.includes('manualStepsTitle') && extraSrc.includes('Add to Home Screen'));
+check('already-installed users see a clear state', extraSrc.includes('alreadyInstalled') && extraSrc.includes('standalone'));
+const authSrc = fs.readFileSync(path.join(ROOT, 'js/screens/auth.js'), 'utf8');
+check('the login screen offers install before sign-in',
+  authSrc.includes('authInstall') && authSrc.includes('triggerInstall'));
+
+check('the download page hands out the app link (copy + share)',
+  extraSrc.includes('appLink') && extraSrc.includes('clipboard') && extraSrc.includes('navigator.share'));
 check('app handles iOS (no install API)', appJs.includes('Add to Home Screen'));
 
 // ── a boot in a DOM still succeeds with the PWA wiring ─────────────────────
@@ -118,8 +133,10 @@ window.localStorage.clear();
 await import(path.join(ROOT, 'js/app.js'));
 await new Promise((r) => setTimeout(r, 1500));
 
-const cards = window.document.querySelectorAll('#exploreGrid .card').length;
-check('app still boots and renders with PWA wiring', cards > 0, `${cards} room cards`);
+const bootOk = window.document.querySelector('#boot')?.style.display === 'none';
+const landed = !window.document.querySelector('#authScreen')?.hidden
+  || !window.document.querySelector('#onboarding')?.hidden;
+check('app still boots and renders with PWA wiring', bootOk && landed, landed ? 'sign-in flow reached' : 'nothing visible');
 check('install bar exists in the DOM', !!window.document.querySelector('#installBar'));
 
 console.log(`\n════ RESULT: ${pass} passed, ${fail} failed ════\n`);

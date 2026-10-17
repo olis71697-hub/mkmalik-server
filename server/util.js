@@ -39,10 +39,10 @@ function notFound(msg = 'Not found') {
   e.code = 'not_found';
   return e;
 }
-function forbidden(msg = 'Not allowed') {
+function forbidden(msg = 'Not allowed', code = 'forbidden') {
   const e = new Error(msg);
   e.status = 403;
-  e.code = 'forbidden';
+  e.code = code;
   return e;
 }
 

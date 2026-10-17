@@ -1,5 +1,5 @@
 /*
- * MK Malik — integration test: peer topology.
+ * Panda Voice — integration test: peer topology.
  *
  * Verifies the audio graph the server hands out as people move between the
  * audience and the ten mic seats. Getting this wrong is the difference between

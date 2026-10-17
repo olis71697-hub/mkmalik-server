@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-   MK Malik service worker.
+   Panda Voice service worker.
 
    Deliberately conservative: this app is realtime and every request carries
    live data, so the worker never caches HTML or API responses. It exists to
@@ -7,12 +7,12 @@
    keep the icons fast.
    --------------------------------------------------------------------------- */
 
-const VERSION = 'mkmalik-v1';
+const VERSION = 'panda-v2';
 const SHELL = `${VERSION}-shell`;
 const ASSETS = `${VERSION}-assets`;
 
 // relative, so the app works at a domain root and under a sub-path
-const SHELL_FILES = ['./', './index.html', './css/app.css', './manifest.json'];
+const SHELL_FILES = ['./', './index.html', './css/panda.css', './manifest.json'];
 const ASSET_FILES = [
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -102,4 +102,33 @@ self.addEventListener('fetch', (event) => {
 // Let the page tell the worker to take over immediately after an update.
 self.addEventListener('message', (event) => {
   if (event.data === 'SKIP_WAITING') self.skipWaiting();
+});
+
+
+// ── Web Push (VAPID) ───────────────────────────────────────────────────────
+// The server sends { title, body, tag, url }; show it even with no page open.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (_) { data = {}; }
+  const title = data.title || 'Panda Voice 🐼';
+  event.waitUntil(self.registration.showNotification(title, {
+    body: data.body || '',
+    tag: data.tag || 'panda-voice',
+    icon: 'icons/icon-192.png',
+    badge: 'icons/icon-64.png',
+    vibrate: [80, 40, 80],
+    data: { url: data.url || './' },
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || './';
+  event.waitUntil((async () => {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of clients) {
+      if ('focus' in client) { client.navigate?.(url).catch(() => {}); return client.focus(); }
+    }
+    return self.clients.openWindow(url);
+  })());
 });

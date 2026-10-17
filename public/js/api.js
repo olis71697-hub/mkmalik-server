@@ -1,14 +1,14 @@
 /* REST client + session storage.
  *
- * Talks to the Node backend when one is reachable; otherwise it falls back to
- * the in-browser engine in local.js, so the same screens work either way.
+ * Every call goes to the real Node backend (same origin, or a discovered
+ * backend origin). There is no offline mock: if the server is unreachable the
+ * app shows an error screen instead of pretending to work.
  */
 
-import { apiBase, isLocal } from './runtime.js';
-import { localApi } from './local.js';
+import { apiBase } from './runtime.js';
 
-const TOKEN_KEY = 'mkmalik.token';
-const USER_KEY = 'mkmalik.user';
+const TOKEN_KEY = 'panda.token';
+const USER_KEY = 'panda.user';
 
 let token = null;
 try { token = localStorage.getItem(TOKEN_KEY); } catch (_) {}
@@ -51,7 +51,7 @@ async function request(method, path, body) {
   try {
     res = await fetch(apiBase() + path, { method, headers, body: payload });
   } catch (_) {
-    throw new ApiError('Network unreachable — check your connection', 'network', 0);
+    throw new ApiError('নেটওয়ার্কে পৌঁছানো যাচ্ছে না — সংযোগ দেখুন', 'network', 0);
   }
 
   const text = await res.text();
@@ -69,69 +69,104 @@ async function request(method, path, body) {
 const get   = (p)    => request('GET', p);
 const post  = (p, b) => request('POST', p, b);
 const patch = (p, b) => request('PATCH', p, b);
+const put   = (p, b) => request('PUT', p, b);
+const del   = (p, b) => request('DELETE', p, b);
 
-/** Route to the local engine when there is no backend behind us. */
-const local = (name, ...args) => {
-  const fn = localApi[name];
-  if (!fn) throw new ApiError(`local mode does not implement ${name}`, 'not_implemented', 501);
-  return fn.apply(localApi, args);
-};
+/** query string that skips undefined/null/empty values */
+function qs(params = {}) {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') sp.set(k, v);
+  }
+  return sp.toString();
+}
 
 export const api = {
-  // auth
-  register: (username, password, displayName) =>
-    isLocal() ? local('demo') : post('/auth/register', { username, password, displayName }),
-  login: (username, password) =>
-    isLocal() ? local('demo') : post('/auth/login', { username, password }),
-  demo: () => (isLocal() ? local('demo') : post('/auth/demo')),
+  // ---- auth (username / password) ----
+  register: (username, password, displayName, accepted) =>
+    post('/auth/register', { username, password, displayName, accepted }),
+  login: (username, password) => post('/auth/login', { username, password }),
 
-  me: () => (isLocal() ? local('me') : get('/me')),
-  updateMe: (patchBody) => (isLocal() ? local('updateMe', patchBody) : patch('/me', patchBody)),
+  // ---- auth (phone OTP) ----
+  otpRequest: (phone) => post('/auth/otp/request', { phone }),
+  otpVerify: (phone, code, displayName) => post('/auth/otp/verify', { phone, code, displayName }),
+
+  // ---- auth (Google) ----
+  google: (credential) => post('/auth/google', { credential }),
+
+  // ---- sessions ----
+  logoutAll: () => post('/auth/logout-all'),
+
+  // ---- auth (password reset) ----
+  forgot: (username) => post('/auth/forgot', { username }),
+  reset: (username, code, password) => post('/auth/reset', { username, code, password }),
+
+  // ---- me ----
+  me: () => get('/me'),
+  updateMe: (patchBody) => patch('/me', patchBody),
   uploadAvatar: (file) => {
-    if (isLocal()) return local('uploadAvatar', file);
     const fd = new FormData();
     fd.append('image', file);
     return request('POST', '/me/avatar', fd);
   },
-  dailyBonus: () => (isLocal() ? local('dailyBonus') : post('/me/daily-bonus')),
+  dailyBonus: () => post('/me/daily-bonus'),
+  changePassword: (currentPassword, newPassword) => post('/me/password', { currentPassword, newPassword }),
+  deleteAccount: (body) => del('/me', body),
+  exportData: () => get('/me/export'),
 
-  // explore
-  rooms: (params = {}) =>
-    isLocal() ? local('rooms', params) : get('/rooms?' + new URLSearchParams(params)),
-  room: (id) => (isLocal() ? local('room', id) : get('/rooms/' + id)),
-  createRoom: (body) => (isLocal() ? local('createRoom', body) : post('/rooms', body)),
+  // ---- settings ----
+  settings: () => get('/me/settings'),
+  saveSettings: (s) => put('/me/settings', s),
 
-  // people
-  search: (q) => (isLocal() ? local('search', q) : get('/search?q=' + encodeURIComponent(q))),
-  user: (id) => (isLocal() ? local('user', id) : get('/users/' + id)),
-  follow: (id) => (isLocal() ? local('follow', id) : post(`/users/${id}/follow`)),
-  userGifts: (id) => (isLocal() ? local('userGifts', id) : get(`/users/${id}/gifts`)),
+  // ---- web push ----
+  pushKey: () => get('/push/key'),
+  pushStatus: () => get('/push/status'),
+  pushSubscribe: (subscription) => post('/push/subscribe', subscription),
+  pushUnsubscribe: (endpoint) => post('/push/unsubscribe', { endpoint }),
+  pushTest: () => post('/push/test'),
 
-  // economy
-  gifts: () => (isLocal() ? local('gifts') : get('/gifts')),
-  topup: (amount, tok) => (isLocal() ? local('topup') : post('/wallet/topup', { amount, token: tok })),
+  // ---- blocks / reports ----
+  blocks: () => get('/me/blocks'),
+  block: (id) => post(`/users/${id}/block`),
+  unblock: (id) => del(`/users/${id}/block`),
+  report: (body) => post('/report', body),
 
-  // moments
-  moments: () => (isLocal() ? local('moments') : get('/moments')),
-  postMoment: (formData) =>
-    isLocal() ? local('postMoment', formData) : request('POST', '/moments', formData),
-  likeMoment: (id) => (isLocal() ? local('likeMoment', id) : post(`/moments/${id}/like`)),
-  momentComments: (id) => (isLocal() ? local('momentComments', id) : get(`/moments/${id}/comments`)),
-  addComment: (id, body) =>
-    isLocal() ? local('addComment', id, body) : post(`/moments/${id}/comments`, { body }),
+  // ---- explore ----
+  rooms: (params = {}) => get('/rooms?' + qs(params)),
+  myRooms: () => get('/me/rooms'),
+  room: (id) => get('/rooms/' + id),
+  roomGifters: (id) => get(`/rooms/${id}/gifters`),
+  createRoom: (body) => post('/rooms', body),
 
-  // chat
-  conversations: () => (isLocal() ? local('conversations') : get('/chat/conversations')),
-  thread: (userId, before) =>
-    isLocal() ? local('thread', userId) : get(`/chat/${userId}/messages` + (before ? `?before=${before}` : '')),
-  sendDM: (userId, body) =>
-    isLocal() ? local('sendDM', userId, body) : post(`/chat/${userId}/messages`, { body }),
+  // ---- people ----
+  search: (q) => get('/search?q=' + encodeURIComponent(q)),
+  users: (sort = 'popular') => get('/users?sort=' + sort),
+  user: (id) => get('/users/' + id),
+  follow: (id) => post(`/users/${id}/follow`),
+  followers: (id) => get(`/users/${id}/followers`),
+  following: (id) => get(`/users/${id}/following`),
+  userGifts: (id) => get(`/users/${id}/gifts`),
 
-  // misc
-  notifications: () => (isLocal() ? local('notifications') : get('/notifications')),
-  readNotifications: () => (isLocal() ? local('readNotifications') : post('/notifications/read')),
-  leaderboard: (period = 'day') =>
-    isLocal() ? local('leaderboard', period) : get('/leaderboard?period=' + period),
-  health: () => (isLocal() ? local('health') : get('/health')),
-  iceServers: () => (isLocal() ? local('iceServers') : get('/ice-servers')),
+  // ---- economy ----
+  gifts: () => get('/gifts'),
+  topup: (amount, tok) => post('/wallet/topup', { amount, token: tok }),
+
+  // ---- wallet ----
+  wallet: () => get('/wallet'),
+  packages: () => get('/wallet/packages'),
+  purchase: (packageId, paymentMethod, paymentRef) =>
+    post('/wallet/purchase', { packageId, paymentMethod, paymentRef }),
+  exchange: (diamonds) => post('/wallet/exchange', { diamonds }),
+
+  // ---- chat ----
+  conversations: () => get('/chat/conversations'),
+  thread: (userId, before) => get(`/chat/${userId}/messages` + (before ? `?before=${before}` : '')),
+  sendDM: (userId, body) => post(`/chat/${userId}/messages`, { body }),
+
+  // ---- misc ----
+  notifications: () => get('/notifications'),
+  readNotifications: () => post('/notifications/read'),
+  leaderboard: (period = 'day') => get('/leaderboard?period=' + period),
+  health: () => get('/health'),
+  iceServers: () => get('/ice-servers'),
 };

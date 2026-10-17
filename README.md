@@ -86,7 +86,7 @@ Attach a disk on a paid plan for permanent storage.
 
 1. <https://railway.com/new> → **Deploy from GitHub repo** → pick this repo
 2. Railway detects Node and uses `railway.json`
-3. Add variables `DEMO_AUTO_LOGIN=1` and `NODE_ENV=production`
+3. Add variable `NODE_ENV=production` (plus `JWT_SECRET`, and `SMS_API_URL` / `PURCHASE_VERIFY_URL` when you have them)
 4. **Settings → Networking → Generate Domain**
 
 ### Fly.io (keeps your data)
@@ -97,7 +97,7 @@ and uploads survive.
 ```bash
 fly launch --no-deploy
 fly volumes create mkmalik_data --size 1
-fly secrets set DEMO_AUTO_LOGIN=1 JWT_SECRET=$(openssl rand -hex 48)
+fly secrets set JWT_SECRET=$(openssl rand -hex 48)
 fly deploy
 ```
 
@@ -110,8 +110,9 @@ unit and nginx config.
 
 | Setting | Why |
 |---|---|
-| `DEMO_AUTO_LOGIN=0` | Otherwise every visitor shares the demo account |
 | `JWT_SECRET=<random>` | Set it explicitly and never let it change |
+| `SMS_API_URL` + `SMS_API_KEY` | Phone/OTP sign-in needs a real SMS gateway |
+| `PURCHASE_VERIFY_URL` (+ `PAYMENTS_MODE=live`) | Coin purchases need a real payment gateway |
 | `TURN_URL` + credentials | Voice across mobile networks needs a relay |
 
 ---
@@ -148,18 +149,13 @@ npm install
 npm start
 ```
 
-Open <http://localhost:8080>. On first boot the server seeds itself with a cast
-of official rooms so the grid is never empty.
+Open <http://localhost:8080>. The database starts **empty** — no demo
+accounts, no fake rooms, no auto-login. Register a real account
+(username + password) and create the first room yourself.
 
-You land **straight on the Explore grid** — no sign-up needed. Outside
-production a visitor with no saved session is given the demo account
-automatically (`DEMO_AUTO_LOGIN`), so the app is immediately usable. Use
-**Profile → Sign out** to get to the real sign-in screen.
-
-| Account | Password |
-|---|---|
-| `mkmalik` (the demo account) | `demo1234` |
-| every other seeded account | `demo1234` |
+Everything you see from that point is real data in a real database. If you
+ever want throwaway test data on a dev machine, `npm run seed` creates it on
+purpose — it is never run automatically.
 
 ### Talk between two devices
 
@@ -175,14 +171,23 @@ window, or two phones on the same network:
 
 ---
 
-## What is real and what is seeded
+## What is real and what needs a third-party service
 
-| Real (server-authoritative) | Seeded for the demo |
+| Real (server-authoritative, works today) | Needs configuration |
 |---|---|
-| WebRTC audio, peer-to-peer mesh | Official room hosts |
-| Seat occupancy, mute, hand-raise, locks | Their mic seats and presence |
-| Room chat + rate limiting | Ambient room chatter |
-| Gifts and the coin/diamond ledger | Face piles on the cards |
+| WebRTC audio, peer-to-peer mesh | SMS for phone/OTP login (`SMS_API_URL`) |
+| Chat safety filter: profanity/slurs (bn/en/romanized + leetspeak & separator evasion) rejected server-side, 3 strikes → 10-min chat timeout (`CHAT_FILTER=off` to disable) | |
+| Seat occupancy, mute, hand-raise, locks | Google Sign-In (`GOOGLE_CLIENT_ID`) |
+| Room chat + rate limiting, moderation | Coin purchases (`PAYMENTS_MODE=live` + verify URL) |
+| Gifts, coins, diamonds, diamond→coin exchange | TURN relay for strict NATs (`TURN_URL`) |
+| Followers, DMs, leaderboards, Web Push (VAPID) | |
+| "Your followed host is live" notifications | |
+| Sessions: JWT + "log out on all devices" (token revocation) | |
+| Daily bonus with consecutive-day streaks (150 → 300 coins) | |
+| Host analytics: every room you opened with joins, peak listeners and gift earnings (crash-safe persistence) | |
+| Per-room gift leaderboard: top gifters & receivers of each room (survives the room closing) | |
+| "Download my data": full account export as JSON (profile, ledger, gifts, rooms, DMs, notifications) | |
+| Settings completed per spec: audio volume slider, cache clear, real server version | |
 | Moments, likes, comments | — |
 | Direct messages | — |
 | Accounts, sessions, follows | — |
@@ -365,8 +370,9 @@ Copy `.env.example` to `.env`. Everything has a working default — highlights:
 | `TURN_SECRET` | — | coturn REST credentials |
 | `ADMIN_TOPUP_TOKEN` | — | Enables coin top-ups |
 | `CORS_ORIGINS` | `*` | Restrict for native clients |
-| `DEMO_AUTO_LOGIN` | on outside production | Auto-enter the demo account for new visitors |
 | `AUTH_ATTEMPTS_PER_MIN` | `12` | Sign-in / sign-up attempts per IP |
+| `OTP_DEV_BYPASS` | off | Dev-only: surface OTP codes without an SMS gateway |
+| `CHAT_FILTER` | on | Server-side profanity/slur filter for chat, DMs, titles, profiles |
 | `ROOMS_PER_HOUR` | `6` | Rooms one account may open per hour |
 
 ---
@@ -378,18 +384,19 @@ npm start          # in one terminal
 npm test           # in another   (~75s)
 ```
 
-Six suites run against the real server — nothing is mocked. They drive actual
-Socket.IO clients through full sessions, boot the app in jsdom, and serve it
-from a stand-in static host:
+Seven suites run against the real server — nothing is mocked. They drive
+actual Socket.IO clients through full sessions, boot the app in jsdom, and
+serve it from a stand-in static host:
 
 | Suite | What it proves |
 |---|---|
-| `fresh-visit.mjs` | A first-time visitor never gets a blank page — they land in the app (demo auto-login) or on a working sign-in screen |
+| `fresh-visit.mjs` | A first-time visitor lands on the real sign-in screen — no silent demo session, no fake data, and the gift catalog (product data) exists on a fresh database |
 | `pwa.mjs` | The app is genuinely installable: valid manifest, real PNG icons at both sizes, a maskable icon, a registered service worker that never caches live data, and the iOS meta tags |
 | `voice-e2e.mjs` | Room creation, seat taking, SDP/ICE relayed both ways, outsiders cannot inject signalling, chat delivery, gifts moving coins server-side, host moderation, empty rooms closing |
 | `peer-topology.mjs` | The audio graph is right at every stage: `sendonly/recvonly` for speaker→listener, `sendrecv` between speakers, no listener↔listener links, and a full 10-seat room refusing an 11th speaker |
 | `presence.mjs` | A backgrounded phone that stops sending heartbeats keeps its mic seat, while a real disconnect frees it instantly |
 | `static-host.mjs` | The app works when it is *not* served by its own backend: a Pages-like host under a sub-path, the full asset and ES-module graph, the manifest and service worker under that prefix, and every workflow file parsing |
+| `push.mjs` | Web Push is real: stable VAPID keypair, subscribe/unsubscribe storage, dedupe, auth required, dead-endpoint pruning, and honest structured delivery answers |
 
 ```
 ════ RESULT:  5 passed, 0 failed ════   fresh-visit
@@ -425,7 +432,8 @@ server/
   state.js         the live room map — seats, members, host hand-over
   auth.js          JWT sign/verify, middleware
   dm.js            direct messages
-  seed.js          demo cast, gift catalog, official rooms
+  push.js          Web Push (VAPID) delivery
+  seed.js          dev fixture only (never auto-run) — throwaway test data
 public/
   index.html       app shell
   manifest.json         PWA install metadata

@@ -1,804 +1,951 @@
-/* ---------------------------------------------------------------------------
-   Live room — 10 mic seats, real WebRTC audio, chat, gifts, host controls.
-   --------------------------------------------------------------------------- */
+/* Voice Room — 10 mic seats, real WebRTC audio, chat, reactions, gifts,
+ * host & moderator controls, themes, connection status. */
 
-import {
-  $, el, toast, svg, ICON, compact, coverFor, shortId, categoryLabel,
-  haptic, CATEGORIES,
-} from '../util.js';
-import { api } from '../api.js';
-import { VoiceEngine, RemoteLevels, loadIceServers } from '../rtc.js';
+import { $, $$, el, toast, svg, ICON, compact, clockLabel, avatarImg, confirmBox, haptic, categoryEmoji } from '../util.js';
+import { t, isBn } from '../i18n.js';
+import { api, session } from '../api.js';
+import { VoiceEngine, loadIceServers } from '../rtc.js';
 
-export function mountRoom(App) {
-  const root      = $('#room');
-  const seatsWrap = $('#seats');
-  const slotsWrap = $('#roomSlots');
-  const chatLog   = $('#chatLog');
-  const roomScroll= $('#roomScroll');
-  const micBtn    = $('#micBtn');
-  const micLabel  = $('#micLabel');
-  const handBtn   = $('#handBtn');
-  const inputBar  = $('#roomInputBar');
-  const input     = $('#roomInput');
-  const statsWrap = $('#roomStats');
+export { openPage } from './extra.js';
 
-  let room = null;             // latest snapshot from the server
-  let voice = null;            // VoiceEngine
-  let levels = null;           // RemoteLevels
-  let pin = null;              // PIN supplied when joining a private room
-  let leaving = false;
-  let seatsDirty = false;
+const REACTIONS = ['❤️', '😂', '😍', '🔥', '👏', '👍', '😎', '😭', '🥰', '🎉', '👋', '💯'];
 
-  const mySeat = () => (room?.members || []).find((m) => m.userId === App.user?.id)?.seat ?? null;
-  const amSpeaker = () => mySeat() !== null;
-  const isHost = () => room && (room.isOwner || App.user?.role === 'admin');
+let mounted = false;
+let currentRoomId = null;
+let snap = null;            // last room snapshot
+let engine = null;          // VoiceEngine
+let giftCatalog = [];
+let pinNeeded = false;
 
-  // ── open / close ─────────────────────────────────────────────────────────
-  App.events.on('room:open', async ({ roomId, autoSeat, pin: joinPin }) => {
-    pin = joinPin || null;
-    const socket = App.socket;
-    if (!socket?.connected) return toast('Not connected — retry in a second', 'err');
+export function roomIsOpen() { return !!currentRoomId; }
 
-    root.hidden = false;
-    room = null;
-    seatsWrap.innerHTML = '';
-    chatLog.innerHTML = '';
-    inputBar.hidden = true;
-    $('#roomTitle').textContent = 'Connecting…';
-    $('#roomTopic').textContent = '';
+export async function openRoom(App, roomId, { pin } = {}) {
+  if (currentRoomId === roomId) { $('#room').hidden = false; return; }
+  if (currentRoomId) await leaveRoom(App, true);
 
-    await joinRoom(roomId, autoSeat);
-  });
+  try {
+    await loadIceServers();
+  } catch (_) { /* STUN fallback */ }
 
-  App.events.on('room:leave-request', () => leaveRoom('left'));
-
-  async function joinRoom(roomId, autoSeat) {
-    const socket = App.socket;
-
-    const res = await new Promise((resolve) => {
-      socket.emit('room:join', { roomId, seat: autoSeat ? true : undefined, pin }, resolve);
-      setTimeout(() => resolve({ ok: false, error: 'Join timed out' }), 8000);
-    });
-
-    if (!res || !res.ok) {
-      toast(res?.error || 'Could not join the room', 'err');
-      root.hidden = true;
-      return;
-    }
-
-    room = res.room;
-    leaving = false;
-    renderRoom();
-    renderSeats();
-    renderChat(true);
-    startVoice(res.peers || []);
-    App.events.emit('room:joined', room);
-
-    if (res.room.viewer && res.room.viewer.seat !== null) {
-      micBtn.classList.add('is-live');
-      micBtn.classList.toggle('is-muted', res.room.viewer.isMuted);
-      micLabel.textContent = res.room.viewer.isMuted ? 'Tap to unmute' : 'On mic';
-    }
+  if (!giftCatalog.length) {
+    try { giftCatalog = (await api.gifts()).gifts || []; } catch (_) {}
   }
 
-  async function leaveRoom(reason) {
-    if (leaving) return;
-    leaving = true;
-    try { App.socket?.emit('room:leave', { reason }); } catch (_) {}
-    teardownVoice();
-    root.hidden = true;
-    room = null;
-    App.events.emit('room:left');
-    App.events.emit('rooms:refresh');
-  }
+  currentRoomId = roomId;
+  mount(App);
 
-  function teardownVoice() {
-    try { voice?.destroy(); } catch (_) {}
-    try { levels?.destroy(); } catch (_) {}
-    voice = null;
-    levels = null;
-    micBtn.classList.remove('is-live', 'is-muted');
-    micLabel.textContent = 'Join mic';
-    handBtn.classList.remove('is-on');
-  }
-
-  // ── voice ────────────────────────────────────────────────────────────────
-  function startVoice(peers) {
-    teardownVoice();
-    levels = new RemoteLevels();
-    levels.onUpdate = (map) => {
-      for (const [peerId, lvl] of map) {
-        const node = seatsWrap.querySelector(`.seat[data-user="${peerId}"]`);
-        if (node) node.classList.toggle('is-speaking', lvl > 0.2 && node.dataset.muted !== '1');
+  App.socket.emit('room:join', { roomId, pin }, async (res) => {
+    if (!res?.ok) {
+      if (/password/i.test(res?.error || '')) {
+        const code = await promptPin(App, res.error);
+        if (code) { currentRoomId = null; return openRoom(App, roomId, { pin: code }); }
+        currentRoomId = null;
+        $('#room').hidden = true;
+        return;
       }
-    };
+      toast(res?.error || t('error'), 'err');
+      currentRoomId = null;
+      $('#room').hidden = true;
+      return;
+    }
+    $('#room').hidden = false;
+    haptic(10);
+    applySnapshot(App, res.room);
+    if (engine) engine.syncPeers(res.peers || []);
+  });
+}
 
-    voice = new VoiceEngine(App.socket, {
+function promptPin(App, msg) {
+  return new Promise((resolve) => {
+    const inp = el('input', { class: 'input', type: 'text', placeholder: '••••••', style: { marginTop: '10px' } });
+    const modal = el('div', { class: 'modal' },
+      el('div', { class: 'modal-scrim', onclick: () => { modal.remove(); resolve(null); } }),
+      el('div', { class: 'modal-panel' },
+        el('h3', { class: 'modal-title', text: t('roomPassword') }),
+        el('p', { class: 'modal-body', text: msg }),
+        inp,
+        el('div', { class: 'modal-actions', style: { marginTop: '14px' } },
+          el('button', { class: 'btn btn--ghost', text: t('cancel'), onclick: () => { modal.remove(); resolve(null); } }),
+          el('button', { class: 'btn btn--primary', text: t('ok'), onclick: () => { modal.remove(); resolve(inp.value.trim() || null); } }))));
+    document.body.append(modal);
+    requestAnimationFrame(() => { modal.classList.add('is-open'); inp.focus(); });
+  });
+}
+
+export async function leaveRoom(App, switching = false) {
+  if (!currentRoomId) return;
+  try { App.socket.emit('room:leave'); } catch (_) {}
+  try { engine?.destroy(); } catch (_) {}
+  engine = null;
+  currentRoomId = null;
+  snap = null;
+  if (!switching) $('#room').hidden = true;
+}
+
+/* ═══════════════════════════ mount socket handlers once ═══════════════════════════ */
+function mount(App) {
+  if (mounted) return;
+  mounted = true;
+
+  const S = () => App.socket;
+
+  // ---- voice engine ----
+  engine = null;
+  function ensureEngine() {
+    if (engine) return engine;
+    engine = new VoiceEngine(S(), {
       onSpeaking: (speaking) => {
-        const mine = seatsWrap.querySelector(`.seat[data-user="${App.user.id}"]`);
-        if (mine) mine.classList.toggle('is-speaking', speaking);
+        // engine already emits rtc:speaking itself
       },
-      onLevel: (lvl) => {
-        const node = seatsWrap.querySelector(`.seat[data-user="${App.user.id}"]`);
-        if (node && lvl > 0.02) node.style.setProperty('--lvl', lvl.toFixed(2));
+      onState: (st) => {
+        if (st === 'mic-lost') toast(t('micDenied'), 'err');
+        if (st === 'autoplay-blocked') {
+          toast(isBn() ? 'সাউন্ড চালু করতে স্ক্রিনে একবার ট্যাপ করুন' : 'Tap once to enable sound');
+        }
       },
-      onState: (evt) => {
-        if (evt === 'autoplay-blocked') toast('Tap anywhere to enable room audio');
-        if (evt === 'mic-lost') toast('Microphone disconnected', 'err');
-      },
-      onRemoteStream: (peerId, stream) => levels?.attach(peerId, stream),
+      onLevel: (level) => updateOwnWave(level),
+      onRemoteStream: () => {},
     });
-
-    // ICE config (including any TURN relay) must be in place before we build
-    // peer connections, so the first sync waits for it. The engine already
-    // exists, so a room:peers push arriving meanwhile is not lost.
-    const engine = voice;
-    loadIceServers()
-      .then(() => engine.syncPeers(peers))
-      .catch((e) => console.warn('[room] peer sync', e.message));
-  }
-
-  function applyPeers(res) {
-    if (!voice) return;
-    const peers = res.peers || res.room?.peers || [];
-    voice.syncPeers(peers).catch(() => {});
-  }
-
-  // ── rendering: room header ───────────────────────────────────────────────
-  function renderRoom() {
-    if (!room) return;
-    const host = room.members.find((m) => m.userId === room.ownerId)?.user || room.host;
-
-    $('#roomTitle').textContent = room.title;
-    $('#roomTopic').textContent = room.topic || '';
-    $('#roomBoxText').textContent = shortId(room.id);
-    $('#roomHostAvatar').src = host?.avatar || '';
-    $('#roomHostName').textContent = host?.displayName || 'Host';
-    $('#roomHostId').textContent = 'ID ' + shortId(room.ownerId);
-
-    statsWrap.innerHTML = '';
-    statsWrap.append(
-      el('div', { class: 'pill-stat' },
-        el('span', { html: svg(ICON.user, { width: 12, height: 12 }) }),
-        el('span', { text: compact(room.members.length) + ' in room' }),
-      ),
-      el('div', { class: 'pill-stat' },
-        el('span', { html: svg(ICON.mic, { width: 12, height: 12 }) }),
-        el('span', { text: `${room.speakers}/10 on mic` }),
-      ),
-      el('div', { class: 'pill-stat is-accent' },
-        el('span', { html: svg(ICON.diamond, { width: 12, height: 12 }) }),
-        el('span', { text: compact(room.giftCoins) }),
-      ),
-    );
-  }
-
-  // ── rendering: 10 mic seats ──────────────────────────────────────────────
-  function renderSeats() {
-    if (!room) return;
-    seatsWrap.innerHTML = '';
-
-    for (let i = 0; i < 10; i++) {
-      const member = room.seats[i];
-      seatsWrap.append(seatEl(i, member));
-    }
-
-    // listener / free-seat line, with a live equaliser when someone speaks
-    const free = 10 - room.speakers;
-    const speaking = room.members.some((m) => m.speaking);
-    slotsWrap.className = 'room-empty-slots' + (speaking ? ' is-live' : '');
-    slotsWrap.innerHTML = '';
-    slotsWrap.append(
-      el('span', { class: 'bars', html: '<i></i><i></i><i></i><i></i><i></i>' }),
-      el('span', {
-        text: free > 0
-          ? `${free} mic seat${free === 1 ? '' : 's'} free · ${room.listeners} listening`
-          : `${room.listeners} listening · all mics full`,
-      }),
-    );
-
-    // my own controls
-    const seated = amSpeaker();
-    const mine = room.members.find((m) => m.userId === App.user.id);
-    micBtn.classList.toggle('is-live', seated);
-    micBtn.classList.toggle('is-muted', seated && mine?.isMuted);
-    micLabel.textContent = !seated ? 'Join mic' : (mine?.isMuted ? 'Tap to unmute' : 'On mic');
-    handBtn.classList.toggle('is-on', !!mine?.handUp);
-  }
-
-  function seatEl(index, member) {
-    const node = el('div', { class: 'seat', 'data-seat': index });
-
-    if (!member) {
-      node.append(
-        el('div', { class: 'seat-ring' }, el('div', { class: 'seat-ph', text: '+' })),
-        el('div', { class: 'seat-name', text: `Seat ${index + 1}` }),
-      );
-      node.addEventListener('click', () => onSeatTap(index, null));
-      return node;
-    }
-
-    const isMe = member.userId === App.user?.id;
-    const u = member.user || {};
-    node.dataset.user = member.userId;
-    node.dataset.muted = member.isMuted ? '1' : '0';
-    node.classList.add('is-active');
-    if (isMe) node.classList.add('is-me');
-    if (member.handUp) node.classList.add('is-hand');
-    if (member.isLocked) node.classList.add('is-locked');
-
-    const ring = el('div', { class: 'seat-ring' },
-      el('img', { src: u.avatar || '', alt: '', loading: 'lazy' }),
-    );
-
-    // status badge — locked > hand > muted
-    let badgeHtml = null;
-    let badgeCls = 'seat-badge';
-    if (member.isLocked) { badgeCls += ' is-lock'; badgeHtml = svg(ICON.lock, { width: 12, height: 12 }); }
-    else if (member.handUp) { badgeCls += ' is-hand'; badgeHtml = svg(ICON.hand, { width: 12, height: 12 }); }
-    else if (member.isMuted) { badgeCls += ' is-muted'; badgeHtml = svg(ICON.micOff, { width: 12, height: 12 }); }
-    if (badgeHtml) ring.append(el('div', { class: badgeCls, html: badgeHtml }));
-
-    node.append(
-      ring,
-      el('div', { class: 'seat-name', text: (isMe ? 'You' : u.displayName) || 'Guest' }),
-    );
-
-    node.addEventListener('click', () => onSeatTap(index, member));
-    return node;
-  }
-
-  /** Tapping a seat: take it if free, otherwise open the user's menu. */
-  function onSeatTap(index, member) {
-    haptic();
-    if (!member) {
-      if (amSpeaker()) return toast('Leave your seat first');
-      App.socket.emit('seat:take', { index }, (res) => {
-        if (!res?.ok) return toast(res?.error || 'Could not take that seat', 'err');
-        toast('You are on the mic — tap the mic button to speak', 'ok');
-        unlockAudio();
-      });
-      return;
-    }
-    if (member.userId === App.user.id) {
-      if (isHost()) return openHostControls();
-      return toggleMic();
-    }
-    openUserSheet(member);
-  }
-
-  async function unlockAudio() {
-    try { await voice?.unlockAudio(); } catch (_) {}
-  }
-  document.addEventListener('click', () => { if (voice) voice.unlockAudio(); }, { once: true });
-
-  // ── mic button ───────────────────────────────────────────────────────────
-  async function toggleMic() {
-    if (!room) return;
-    haptic();
-
-    if (!amSpeaker()) {
-      App.socket.emit('seat:take', {}, async (res) => {
-        if (!res?.ok) return toast(res?.error || 'No free mic seats', 'err');
-        applyPeers(res);
-        App.socket.emit('seat:mute', { muted: false }, (m) => {
-          if (m?.ok) {
-            micBtn.classList.add('is-live', 'is-speaker');
-            micLabel.textContent = 'On mic';
-            toast('You are live — start talking 🎙️', 'ok');
-          }
-        });
-        unlockAudio();
-      });
-      return;
-    }
-
-    const mine = room.members.find((m) => m.userId === App.user.id);
-    const nextMuted = !mine?.isMuted;
-    App.socket.emit('seat:mute', { muted: nextMuted }, (res) => {
-      if (!res?.ok) return toast(res?.error || 'Could not change mic', 'err');
-      micBtn.classList.toggle('is-muted', nextMuted);
-      micLabel.textContent = nextMuted ? 'Tap to unmute' : 'On mic';
-    });
-  }
-
-  micBtn.addEventListener('click', () => {
-    if (isHost() && amSpeaker() && room?.isOwner) {
-      // host long-press opens controls; a plain tap still toggles the mic
-    }
-    toggleMic();
-  });
-
-  // leave the mic / seat entirely via long-press
-  let pressTimer = null;
-  micBtn.addEventListener('pointerdown', () => {
-    pressTimer = setTimeout(() => {
-      if (!amSpeaker()) return;
-      App.socket.emit('seat:leave', {}, (res) => {
-        if (!res?.ok) return toast(res?.error || 'Could not leave the seat', 'err');
-        toast('You moved to the audience');
-      });
-      haptic(30);
-    }, 550);
-  });
-  ['pointerup', 'pointerleave', 'pointercancel'].forEach((evt) =>
-    micBtn.addEventListener(evt, () => clearTimeout(pressTimer)));
-
-  // ── hand / chat / gift / share ───────────────────────────────────────────
-  handBtn.addEventListener('click', () => {
-    haptic();
-    const mine = room?.members.find((m) => m.userId === App.user.id);
-    App.socket.emit('hand:raise', { up: !mine?.handUp }, (res) => {
-      if (!res?.ok) return toast(res?.error || 'Could not raise hand', 'err');
-      toast(res.up ? 'Hand raised ✋ the host can see you' : 'Hand lowered');
-      handBtn.classList.toggle('is-on', res.up);
-    });
-  });
-
-  $('#chatBtn').addEventListener('click', () => {
-    inputBar.hidden = !inputBar.hidden;
-    $('#roomActions').classList.toggle('is-typing', !inputBar.hidden);
-    if (!inputBar.hidden) {
-      setTimeout(() => input.focus(), 60);
-      roomScroll.scrollTop = roomScroll.scrollHeight;
-    }
-  });
-
-  $('#giftBtn').addEventListener('click', openGiftSheet);
-
-  $('#shareBtn').addEventListener('click', async () => {
-    if (!room) return;
-    const id = shortId(room.id);
-    const text = `Join my room "${room.title}" on MK Malik — room ID ${id}`;
+    // the volume chosen in Settings applies to every new room session
     try {
-      if (navigator.share) await navigator.share({ title: 'MK Malik', text, url: location.href });
-      else { await navigator.clipboard.writeText(`${text} — ${location.href}`); toast('Invite copied', 'ok'); }
+      const v = Number(localStorage.getItem('panda.volume'));
+      if (Number.isFinite(v)) engine.setVolume(v);
     } catch (_) {}
+    return engine;
+  }
+
+  // live volume changes from the Settings page
+  App.events.on('volume', (v) => { try { engine?.setVolume(v); } catch (_) {} });
+
+  S().on('room:state', (room) => { if (room?.id === currentRoomId) applySnapshot(App, room); });
+  S().on('room:seatlock', ({ seat, locked }) => {
+    if (locked) lockedSeats.add(seat); else lockedSeats.delete(seat);
+    if (snap) renderSeats(App, snap);
+  });
+  S().on('room:peers', (p) => {
+    if (p?.roomId !== currentRoomId || !engine) return;
+    engine.syncPeers(p.peers || []);
+  });
+  S().on('room:message', (msg) => {
+    if (!snap) return;
+    snap.messages = [...(snap.messages || []), msg].slice(-80);
+    appendChatLine(msg);
+    scrollChat();
+  });
+  S().on('room:seat', (p) => {
+    // granular update arrives before the state broadcast; just refresh on state
+  });
+  S().on('room:speaking', ({ userId, speaking }) => {
+    const node = $(`.seat[data-user="${userId}"]`);
+    if (node) {
+      node.classList.toggle('is-speaking', speaking);
+      const wave = node.querySelector('.vwave');
+      if (wave) wave.style.visibility = speaking ? 'visible' : 'hidden';
+    }
+  });
+  S().on('room:gift', (ev) => {
+    showGiftFx(ev);
+    App.events.emit('wallet-refresh');
+  });
+  S().on('room:reaction', (r) => showReactionFx(r));
+  S().on('room:closed', (p) => {
+    toast(t('roomClosed'), 'err');
+    leaveRoom(App);
+  });
+  S().on('seat:granted', (p) => { toast(t('seatGranted'), 'ok'); });
+  S().on('seat:invited', async (p) => {
+    if (p.roomId !== currentRoomId) return;
+    haptic(20);
+    const okBtn = await confirmBox({
+      title: `🎤 ${p.byName} ${isBn() ? 'আপনাকে সিট ' + (p.seat + 1) + ' এ আমন্ত্রণ জানিয়েছে' : 'invited you to seat ' + (p.seat + 1)}`,
+      okLabel: t('takeSeat'),
+    });
+    if (okBtn) {
+      S().emit('seat:take', { index: p.seat }, (r) => { if (!r?.ok) toast(r?.error, 'err'); });
+    }
+  });
+  S().on('seat:force_muted', (p) => {
+    if (p.roomId !== currentRoomId) return;
+    if (p.muted) toast('🔇 ' + (isBn() ? 'হোস্ট আপনাকে মিউট করেছে' : 'The host muted you'), 'err');
+  });
+  S().on('seat:revoked', (p) => { toast('🚫 ' + (isBn() ? 'হোস্ট আপনাকে সিট থেকে সরিয়েছে' : 'Removed from the mic'), 'err'); });
+
+  // reconnect: resume the room after a network blip
+  App.events.on('socket', async ({ connected }) => {
+    const strip = $('#netStrip');
+    if (!connected) {
+      if (strip) { strip.className = 'net-strip is-bad'; strip.textContent = '⚠ ' + t('connectionLost'); }
+      return;
+    }
+    if (strip) { strip.className = 'net-strip is-ok'; strip.textContent = '✓ ' + t('connected'); setTimeout(() => { if (strip) strip.textContent = ''; }, 2200); }
+    if (currentRoomId) {
+      S().emit('room:join', { roomId: currentRoomId }, (res) => {
+        if (res?.ok) {
+          applySnapshot(App, res.room);
+          engine?.syncPeers(res.peers || []);
+        } else if (res?.error) {
+          toast(res.error, 'err');
+          leaveRoom(App);
+        }
+      });
+    }
   });
 
-  inputBar.addEventListener('submit', (ev) => {
-    ev.preventDefault();
+  // ---- static controls ----
+  $('#roomBack').addEventListener('click', () => leaveRoom(App));
+
+  $('#roomInputBar').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = $('#roomInput');
     const body = input.value.trim();
     if (!body) return;
-    input.value = '';
-    App.socket.emit('chat:send', { body }, (res) => {
-      if (!res?.ok) toast(res?.error || 'Message not sent', 'err');
+    S().emit('chat:send', { body }, (r) => {
+      if (!r?.ok) toast(r?.error, 'err');
     });
+    input.value = '';
   });
 
-  // ── host controls ────────────────────────────────────────────────────────
-  $('#roomMore').addEventListener('click', openHostControls);
+  $('#roomMore').addEventListener('click', () => openHostMenu(App));
+}
 
-  function openHostControls() {
-    const panel = $('#sheetPanel');
-    const sheet = $('#sheet');
-    panel.innerHTML = '';
-    const host = isHost();
+/* ═══════════════════════════ snapshot → UI ═══════════════════════════ */
+function applySnapshot(App, room) {
+  if (!room) return;
+  const prevSeats = snap?.seats;
+  snap = room;
+  myId = App.user?.id || null;
 
-    panel.append(el('div', { class: 'sheet-grip' }), el('div', { class: 'sheet-title', text: host ? 'Room controls' : 'Room info' }));
-    const list = el('div', { class: 'sheet-list' });
+  const roomEl = $('#room');
+  roomEl.className = `room theme-${room.theme || 'bamboo'}`;
 
-    const row = (icon, label, hint, onClick, danger) => {
-      const r = el('button', { class: 'sheet-row' + (danger ? ' is-danger' : '') },
-        el('span', { class: 'menu-ic', html: svg(icon, { width: 17, height: 17 }) }),
-        el('span', { class: 'sheet-row-main' },
-          el('span', { class: 'sheet-row-label', text: label }),
-          hint ? el('span', { class: 'sheet-row-hint', text: hint }) : null,
-        ),
-        el('span', { class: 'menu-chev', html: svg(ICON.chev, { width: 16, height: 16 }) }),
-      );
-      r.addEventListener('click', () => { sheet.hidden = true; onClick(); });
-      return r;
-    };
+  // header
+  $('#roomHead').innerHTML = '';
+  $('#roomHead').append(
+    avatarImg(room.members?.find((m) => m.userId === room.ownerId)?.user?.avatar || null, t('host'), 'avatar--sm'),
+    el('div', { class: 'room-host-meta' },
+      el('span', { class: 'room-host-name' },
+        el('span', { text: room.members?.find((m) => m.userId === room.ownerId)?.user?.displayName || t('host') }),
+        el('span', { class: 'badge-host', text: t('host') })),
+      el('span', { class: 'room-host-id', text: `ID ${room.id.slice(0, 6).toUpperCase()}` })));
+  $('#roomBoxText').textContent = room.id.slice(0, 6).toUpperCase();
 
-    if (host) {
-      list.append(
-        row(ICON.lock, room.locked ? 'Unlock the room' : 'Lock the room',
-          room.locked ? 'People can join again' : 'Stop new people from joining',
-          () => App.socket.emit('room:update', { locked: !room.locked })),
-        row(ICON.edit, 'Edit room title', room.title, () => {
-          const t = prompt('Room title', room.title);
-          if (t && t.trim()) App.socket.emit('room:update', { title: t.trim() });
-        }),
-      );
-      const lockedSeats = room.seats.filter((s) => s?.isLocked).length;
-      if (lockedSeats) {
-        list.append(row(ICON.lock, `Unlock ${lockedSeats} seat(s)`, 'Reopen them for the audience', () => {
-          room.seats.forEach((s, i) => { if (s?.isLocked) App.socket.emit('seat:lock', { index: i, locked: false }); });
-        }));
-      }
-      list.append(el('div', { class: 'sheet-sep' }));
-    }
+  // banner
+  const banner = $('#roomBanner');
+  banner.innerHTML = '';
+  banner.append(
+    el('div', { class: 'room-title-row' },
+      el('span', { class: 'room-live-dot' }),
+      el('h2', { text: room.title }),
+      room.locked ? el('span', { style: { color: 'var(--gold)' }, html: svg(ICON.lock) }) : null),
+    el('p', { class: 'room-topic', text: room.topic || '' }),
+    el('div', { class: 'room-stats' },
+      el('span', { html: `<b>${room.speakers}</b> 🎙` }),
+      el('span', { html: `<b>${room.listeners}</b> 🎧` }),
+      el('span', { html: `<b>${compact(room.giftCoins || 0)}</b> 🎁` }),
+      el('span', { html: `<b>${room.seatCount}</b> ${isBn() ? 'সিট' : 'seats'}` })));
 
-    list.append(
-      row(ICON.users, `${room.speakers}/10 on mic`, `${room.listeners} listening in the audience`, () => {}),
-      row(ICON.share, 'Share invite', 'Copy the room link', () => $('#shareBtn').click()),
-      row(ICON.clock, 'Room ID', shortId(room.id), () => {
-        navigator.clipboard?.writeText(shortId(room.id)).then(() => toast('Room ID copied', 'ok')).catch(() => {});
-      }),
-    );
+  renderSeats(App, room, prevSeats);
+  renderChat(room);
+  renderActions(App, room);
+  updateNetStrip();
 
-    if (host) {
-      list.append(el('div', { class: 'sheet-sep' }));
-      list.append(row(ICON.logout, 'End room for everyone', 'Closes the room immediately', () => {
-        if (confirm('End the room for everyone?')) {
-          App.socket.emit('room:end', {}, () => { root.hidden = true; teardownVoice(); });
-        }
-      }, true));
-    }
+  // follow mic/seat transitions with the voice engine
+  syncEngineWithSeat(App, room);
+}
 
-    list.append(el('div', { class: 'sheet-sep' }));
-    list.append(row(ICON.logout, 'Leave the room', '', () => leaveRoom('left'), !host));
+function viewerMember(room) {
+  return room.viewer || room.members?.find((m) => m.userId === myId) || null;
+}
+let myId = null;
 
-    panel.append(list);
-    sheet.hidden = false;
-  }
+/* ---- the 10 seats ---- */
+function renderSeats(App, room, prevSeats) {
+  const seatsEl = $('#seats');
+  seatsEl.innerHTML = '';
+  const isMod = !!room.isMod;
+  const ownerId = room.ownerId;
+  const mods = new Set(room.mods || []);
 
-  // ── per-user sheet (host moderation) ─────────────────────────────────────
-  function openUserSheet(member) {
-    const panel = $('#sheetPanel');
-    const sheet = $('#sheet');
-    panel.innerHTML = '';
-    const host = isHost();
-
-    panel.append(
-      el('div', { class: 'sheet-grip' }),
-      el('div', { class: 'gift-head', style: { paddingBottom: '4px' } },
-        el('img', { class: 'avatar avatar--md', src: member.user?.avatar || '', alt: '' }),
-        el('div', { style: { flex: '1', minWidth: '0' } },
-          el('div', { style: { fontSize: '16px', fontWeight: '800' }, text: member.user?.displayName || 'Guest' }),
-          el('div', { style: { fontSize: '12px', color: 'var(--ink-3)', marginTop: '2px' },
-            text: `ID ${shortId(member.userId)} · Lv.${member.user?.level || 1}${member.isMuted ? ' · mic muted' : ''}` }),
-        ),
+  room.seats.forEach((member, i) => {
+    if (member) {
+      const u = member.user || {};
+      const seat = el('div', {
+        class: 'seat' + (member.isMuted ? ' seat-muted' : '') + (member.handUp ? ' seat-hand' : '') + (member.speaking ? ' is-speaking' : '') + (member.userId === ownerId ? ' seat-host' : ''),
+        'data-user': member.userId,
+        onclick: () => openSeatSheet(App, room, member, i),
+      },
+      el('button', { class: 'seat-btn' },
+        avatarImg(u.avatar, u.displayName),
+        member.isMuted ? el('span', { class: 'muteflag', html: svg(ICON.micOff) }) : null,
       ),
-    );
-
-    const list = el('div', { class: 'sheet-list' });
-    const row = (icon, label, hint, onClick, danger) => {
-      const r = el('button', { class: 'sheet-row' + (danger ? ' is-danger' : '') },
-        el('span', { class: 'menu-ic', html: svg(icon, { width: 17, height: 17 }) }),
-        el('span', { class: 'sheet-row-main' },
-          el('span', { class: 'sheet-row-label', text: label }),
-          hint ? el('span', { class: 'sheet-row-hint', text: hint }) : null,
-        ),
-      );
-      r.addEventListener('click', () => { sheet.hidden = true; onClick(); });
-      return r;
-    };
-
-    list.append(
-      row(ICON.gift, 'Send a gift', 'Roses, crowns, dragons…', () => {
-        currentGiftTarget = member;
-        openGiftSheet();
-      }),
-      row(ICON.comment, 'Message privately', '', () => {
-        sheet.hidden = true;
-        App.events.emit('dm:open', member.userId);
-      }),
-      row(ICON.user, 'View profile', '', () => {
-        sheet.hidden = true;
-        App.events.emit('view-profile', member.userId);
-      }),
-    );
-
-    if (host && member.userId !== room.ownerId) {
-      list.append(el('div', { class: 'sheet-sep' }));
-      list.append(
-        row(ICON.lock, member.isLocked ? 'Unlock this seat' : 'Lock this seat',
-          'Locked seats can only be taken by invite',
-          () => App.socket.emit('seat:lock', { index: member.seat, locked: !member.isLocked })),
-        row(ICON.micOff, 'Mute this seat', 'Force-mute the microphone', () => {
-          App.socket.emit('seat:kick', { userId: member.userId, ban: false });
+      el('div', { class: 'seat-mods' },
+        member.userId === ownerId ? null : mods.has(member.userId) ? el('span', { class: 'badge-mod', text: 'MOD' }) : null),
+      el('div', { class: 'seat-badges' },
+        u.vip ? el('span', { class: 'vip', html: svg(ICON.crownS) + 'VIP' }) : null,
+        el('span', { class: 'lvl' + ((u.level || 1) >= 30 ? ' lvl--gold' : ''), text: u.level || 1 })),
+      el('span', { class: 'seat-name', text: u.displayName || ('Seat ' + (i + 1)) }),
+      el('div', { class: 'vwave', style: { visibility: 'hidden' } },
+        el('i'), el('i'), el('i'), el('i'), el('i')));
+      seatsEl.append(seat);
+    } else {
+      const locked = isSeatLockedVisual(App, room, i);
+      const seat = el('div', { class: 'seat seat-empty' + (locked ? ' seat-locked' : ''), 'data-seat': i },
+        el('button', {
+          class: 'seat-btn',
+          html: svg(locked ? ICON.lock : ICON.user),
+          onclick: () => {
+            if (locked) { toast(t('seatLocked'), 'err'); return; }
+            haptic(10);
+            App.socket.emit('seat:take', { index: i }, (r) => {
+              if (r?.ok) { toast(`${t('seatTaken')} ${i + 1} 🎙️`, 'ok'); }
+              else toast(r?.error || t('error'), 'err');
+            });
+          },
         }),
-        row(ICON.close, 'Remove from mic', 'They stay as a listener', () => {
-          App.socket.emit('seat:kick', { userId: member.userId, ban: false });
-        }, true),
-      );
+        el('span', { class: 'seat-name', text: locked ? t('seatLocked') : t('emptySeat') }));
+      seatsEl.append(seat);
     }
+  });
+}
 
-    panel.append(list);
-    sheet.hidden = false;
+/** host-locked empty seats arrive via room:seatlock; kept in a local set. */
+const lockedSeats = new Set();
+function isSeatLockedVisual(App, room, i) {
+  return lockedSeats.has(i);
+}
+
+/* ---- chat ---- */
+function renderChat(room) {
+  const log = $('#chatLog');
+  log.innerHTML = '';
+  (room.messages || []).slice(-40).forEach((m) => appendChatLine(m));
+  scrollChat();
+}
+
+function appendChatLine(m) {
+  const log = $('#chatLog');
+  if (!log) return;
+  let node;
+  if (m.kind === 'system') {
+    node = el('div', { class: 'chat-line is-system' }, el('span', { text: m.body }), el('span', { class: 'chat-time', text: clockLabel(m.createdAt) }));
+  } else if (m.kind === 'gift') {
+    node = el('div', { class: 'chat-line is-gift', text: `🎁 ${m.user?.displayName || ''} ${m.body}` });
+  } else {
+    node = el('div', { class: 'chat-line' },
+      m.user ? el('span', { class: 'who', text: m.user.displayName }) : null,
+      m.user ? el('span', { class: 'lvl', text: m.user.level || 1 }) : null,
+      el('span', { class: 'body', text: m.body }),
+      el('span', { class: 'chat-time', text: clockLabel(m.createdAt) }));
+  }
+  log.append(node);
+}
+
+function scrollChat() {
+  const log = $('#chatLog');
+  if (log) log.scrollTop = log.scrollHeight;
+}
+
+/* ---- action bar ---- */
+function renderActions(App, room) {
+  const bar = $('#roomActions');
+  bar.innerHTML = '';
+  const me = room.viewer;
+  const seated = me && me.seat !== null && me.seat !== undefined;
+  const muted = me ? me.isMuted : true;
+  const handUp = me ? me.handUp : false;
+
+  // mic button
+  const micBtn = el('button', {
+    class: 'mic-btn' + (seated && !muted ? ' is-live' : '') + (seated && muted ? ' is-off' : ''),
+    html: svg(seated && !muted ? ICON.mic : ICON.micOff) + `<span class="mic-label-abs">${seated ? (muted ? t('unmute') : t('mute')) : t('takeSeat')}</span>`,
+    onclick: async () => {
+      haptic(12);
+      if (!seated) {
+        // try to take a free seat
+        const free = (snap.seats || []).findIndex((s) => !s);
+        if (free === -1) { toast(isBn() ? 'সবগুলো সিট পূর্ণ — হাত তুলুন' : 'All seats taken — raise your hand', 'err'); return; }
+        App.socket.emit('seat:take', { index: free }, (r) => {
+          if (r?.ok) toast(`${t('seatTaken')} ${free + 1} 🎙️`, 'ok');
+          else toast(r?.error || t('error'), 'err');
+        });
+        return;
+      }
+      // toggle own mute — needs the microphone
+      if (muted) {
+        try {
+          const eng = ensureEngine();
+          await eng.ensureMic();
+        } catch (err) {
+          toast(micErrorText(err), 'err');
+          return;
+        }
+      }
+      App.socket.emit('seat:mute', { muted: !muted }, (r) => { if (!r?.ok) toast(r?.error, 'err'); });
+    },
+  });
+
+  const act = (icon, label, fn, cls = '') => el('button', { class: 'act-btn ' + cls, html: svg(icon) + `<span>${label}</span>`, onclick: fn });
+
+  bar.append(
+    micBtn,
+    act(ICON.hand, handUp ? t('lowerHand') : t('raiseHand'), () => {
+      App.socket.emit('hand:raise', { up: !handUp }, (r) => { if (r?.ok) toast(r.up ? t('handRaised') + ' ✋' : '', 'ok'); });
+    }, handUp ? 'is-gold' : ''),
+    act(ICON.heart, t('reactions'), () => toggleReactions(App)),
+    act(ICON.gift, t('gifts'), () => openGiftSheet(App), 'is-gold'),
+    act(ICON.comment, 'Chat', () => {
+      const ib = $('#roomInputBar');
+      ib.hidden = !ib.hidden;
+      if (!ib.hidden) $('#roomInput').focus();
+    }),
+    act(engine?.speakerOn === false ? ICON.volumeOff : ICON.volume, t('speaker'), () => {
+      const on = !(engine?.speakerOn !== false);
+      engine?.setSpeakerEnabled(!on);
+      engine?.unlockAudio?.();
+      toast(!on ? '🔊 ' + t('speaker') + ' ON' : '🔇 ' + t('speaker') + ' OFF');
+      renderActions(App, snap);
+    }),
+    act(ICON.users, t('members'), () => openMembersSheet(App)),
+    act(ICON.share, '', () => shareRoom(App)),
+  );
+}
+
+function micErrorText(err) {
+  const name = err?.name || '';
+  if (name === 'NotAllowedError' || name === 'SecurityError') return t('micDenied');
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return isBn() ? 'মাইক্রোফোন পাওয়া যায়নি' : 'No microphone found';
+  if (!navigator.mediaDevices?.getUserMedia) return t('micUnsupported');
+  return err?.message || t('micPermission');
+}
+
+/* ---- engine sync on seat changes ---- */
+function syncEngineWithSeat(App, room) {
+  const me = room.viewer;
+  const seated = me && me.seat !== null && me.seat !== undefined;
+  if (!engine) {
+    if (!seated) return; // listener with no engine yet is fine
+    ensureEngine();
+  }
+  if (seated && !engine.isSpeaker) {
+    engine.goLive().catch((err) => toast(micErrorText(err), 'err'));
+  } else if (!seated && engine.isSpeaker) {
+    engine.goListener();
+  }
+  engine.setMuted(me ? me.isMuted : true);
+}
+
+function updateOwnWave(level) {
+  const me = snap?.viewer;
+  if (!me || me.seat === null) return;
+  const wave = $(`.seat[data-user="${me.userId}"] .vwave`);
+  if (!wave) return;
+  wave.style.visibility = level > 0.12 ? 'visible' : 'hidden';
+  [...wave.children].forEach((bar, i) => {
+    bar.style.height = Math.max(3, Math.min(12, level * 26 * (0.6 + Math.random() * 0.7))) + 'px';
+  });
+}
+
+function updateNetStrip() {
+  const strip = $('#netStrip');
+  if (!strip) return;
+  if (_socketConnected === false) { strip.className = 'net-strip is-bad'; strip.textContent = '⚠ ' + t('connectionLost'); }
+  else { strip.className = 'net-strip'; strip.textContent = ''; }
+}
+let _socketConnected = null;
+export function setSocketConnected(v) { _socketConnected = v; updateNetStrip(); }
+
+/* ═══════════════════════════ reactions ═══════════════════════════ */
+let reactionOpen = false;
+function toggleReactions(App) {
+  const bar = $('#reactionBar');
+  if (reactionOpen) { bar.hidden = true; reactionOpen = false; return; }
+  bar.innerHTML = '';
+  REACTIONS.forEach((emoji) => {
+    bar.append(el('button', {
+      text: emoji,
+      onclick: () => {
+        haptic(8);
+        App.socket.emit('reaction:send', { emoji }, (r) => {
+          if (!r?.ok) toast(r?.error || (isBn() ? 'একটু ধীরে! 🐼' : 'Too fast!'), 'err');
+        });
+      },
+    }));
+  });
+  bar.hidden = false;
+  reactionOpen = true;
+  setTimeout(() => { if (reactionOpen) { bar.hidden = true; reactionOpen = false; } }, 6000);
+}
+
+function showReactionFx({ userId, displayName, emoji }) {
+  const layer = $('#fxLayer');
+  if (!layer) return;
+  const fx = el('div', { class: 'fx-reaction', text: emoji }, el('b', { text: displayName }));
+  fx.style.left = (12 + Math.random() * 68) + '%';
+  fx.style.bottom = (16 + Math.random() * 18) + '%';
+  layer.append(fx);
+  setTimeout(() => fx.remove(), 2700);
+}
+
+/* ═══════════════════════════ gift sheet ═══════════════════════════ */
+export function openGiftSheet(App, presetRecipientId = null) {
+  if (!snap) return;
+  const panel = $('#giftPanel');
+  panel.innerHTML = '';
+  const sheet = $('#giftSheet');
+  sheet.hidden = false;
+
+  // seated members are the gift targets
+  const targets = (snap.members || []).filter((m) => m.userId !== _viewerId);
+  let selectedGift = giftCatalog[0];
+  let qty = 1;
+  let recipientId = presetRecipientId || (targets[0]?.userId ?? null);
+  if (!targets.length) { toast(isBn() ? 'রুমে আর কেউ নেই' : 'Nobody else is here', 'err'); sheet.hidden = true; return; }
+
+  const balanceEl = el('div', { class: 'coin-pill', style: { alignSelf: 'center' } });
+  const renderBalance = () => { balanceEl.innerHTML = svg(ICON.coin) + ` ${compact(App.wallet.coins)}`; };
+  renderBalance();
+
+  const giftsGrid = el('div', { class: 'gift-grid' });
+  function renderGifts() {
+    giftsGrid.innerHTML = '';
+    giftCatalog.forEach((g) => {
+      giftsGrid.append(el('button', {
+        class: 'gift-item' + (selectedGift?.id === g.id ? ' is-selected' : ''),
+        onclick: () => { selectedGift = g; haptic(6); renderGifts(); renderTotal(); },
+      },
+        el('span', { class: 'gi-emoji', text: g.emoji }),
+        el('span', { class: 'gi-name', text: isBn() && g.id === 'heart' ? 'হার্ট' : g.name }),
+        el('span', { class: 'gi-price', html: svg(ICON.coin) + ` ${compact(g.price)}` })));
+    });
   }
 
-  // ── gifts ────────────────────────────────────────────────────────────────
-  let giftCatalog = null;
-  let currentGiftTarget = null;
-  let selectedGift = null;
-  let giftQty = 1;
+  const recipientsRow = el('div', { class: 'hlist', style: { padding: '4px 0 10px' } });
+  function renderRecipients() {
+    recipientsRow.innerHTML = '';
+    targets.forEach((m) => {
+      recipientsRow.append(el('div', {
+        class: 'hcard' + (recipientId === m.userId ? '' : ''),
+        style: { opacity: recipientId === m.userId ? 1 : 0.55, outline: recipientId === m.userId ? '2px solid var(--brand)' : 'none', borderRadius: '14px', padding: '4px' },
+        onclick: () => { recipientId = m.userId; renderRecipients(); },
+      },
+        avatarImg(m.user?.avatar, m.user?.displayName, 'avatar--lg'),
+        el('div', { class: 'nm', text: m.user?.displayName || '' })));
+    });
+  }
 
-  async function openGiftSheet() {
-    const panel = $('#giftPanel');
-    const sheet = $('#giftSheet');
-    panel.innerHTML = '';
-    panel.append(el('div', { class: 'sheet-grip' }));
+  const totalEl = el('div', { class: 'coin-pill', style: { alignSelf: 'center', fontSize: '15px' } });
+  function renderTotal() {
+    const cost = (selectedGift?.price || 0) * qty;
+    totalEl.innerHTML = svg(ICON.coin) + ` ${compact(cost)}`;
+    totalEl.style.color = cost > App.wallet.coins ? 'var(--danger)' : 'var(--gold)';
+  }
 
-    if (!giftCatalog) {
-      try { giftCatalog = (await api.gifts()).gifts; }
-      catch (e) { return toast(e.message, 'err'); }
-    }
-
-    const speakers = (room?.members || []).filter((m) => m.seat !== null && m.userId !== App.user.id);
-    if (!currentGiftTarget) {
-      currentGiftTarget = speakers.find((m) => m.userId === room?.ownerId) || speakers[0] || null;
-    }
-    if (!currentGiftTarget) {
-      panel.append(el('div', { class: 'sheet-title', text: 'No one to gift yet' }),
-        el('div', { class: 'sheet-sub', text: 'Wait for someone to take a mic seat.' }));
-      sheet.hidden = false;
+  const sendBtn = el('button', { class: 'btn btn--gold btn--block', text: t('sendGift') });
+  sendBtn.onclick = () => {
+    const cost = (selectedGift?.price || 0) * qty;
+    if (cost > App.wallet.coins) {
+      confirmBox({ title: t('notEnoughCoins'), body: t('needMore', { n: cost - App.wallet.coins }), okLabel: t('goToWallet') })
+        .then((yes) => { if (yes) { sheet.hidden = true; import('../app.js').then(({ go }) => go('wallet')); } });
       return;
     }
-
-    // target picker
-    const targetBar = el('div', { style: { display: 'flex', gap: '8px', overflowX: 'auto', padding: '0 16px 12px' } });
-    speakers.forEach((m) => {
-      const on = m.userId === currentGiftTarget.userId;
-      const chip = el('button', {
-        class: 'btn btn--sm ' + (on ? 'btn--primary' : 'btn--ghost'),
-        style: { display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: '5px' },
-        onclick: () => { currentGiftTarget = m; openGiftSheet(); },
-      },
-        el('img', { class: 'avatar avatar--xs', style: { width: '22px', height: '22px' }, src: m.user?.avatar || '', alt: '' }),
-        el('span', { text: m.user?.displayName || 'Guest' }),
-      );
-      targetBar.append(chip);
+    sendBtn.disabled = true;
+    App.socket.emit('gift:send', { toUserId: recipientId, giftId: selectedGift.id, qty }, (r) => {
+      sendBtn.disabled = false;
+      if (r?.ok) {
+        App.setWallet({ coins: r.coins });
+        toast(`${t('giftSent')} ${selectedGift.emoji} ×${qty}`, 'ok');
+        sheet.hidden = true;
+      } else {
+        if (r?.code === 'insufficient_coins') {
+          confirmBox({ title: t('notEnoughCoins'), body: r.error, okLabel: t('goToWallet') })
+            .then((yes) => { if (yes) { sheet.hidden = true; import('../app.js').then(({ go }) => go('wallet')); } });
+        } else toast(r?.error || t('error'), 'err');
+      }
     });
+  };
 
-    panel.append(
-      el('div', { class: 'gift-head' },
-        el('div', { style: { fontSize: '17px', fontWeight: '800' }, text: 'Send a gift' }),
-        el('div', { class: 'gift-wallet', id: 'giftWallet' },
-          el('span', { html: svg(ICON.coin, { width: 15, height: 15 }) }),
-          el('span', { text: compact(App.wallet.coins) }),
-        ),
-      ),
-      targetBar,
-    );
+  panel.append(
+    el('div', { class: 'sheet-grip' }),
+    el('div', { class: 'sheet-title' }, el('span', { text: '🎁 ' + t('gifts') }), balanceEl),
+    el('div', { class: 'sheet-title', style: { fontSize: '13px', color: 'var(--text-dim)', fontWeight: 600 }, text: t('selectRecipient') }),
+    recipientsRow,
+    giftsGrid,
+    el('div', { class: 'gift-qty' },
+      el('button', { text: '−', onclick: () => { qty = Math.max(1, qty - 1); qtyEl.textContent = qty; renderTotal(); } }),
+      (() => { qtyEl = el('b', { text: '1' }); return qtyEl; })(),
+      el('button', { text: '+', onclick: () => { qty = Math.min(99, qty + 1); qtyEl.textContent = qty; renderTotal(); } })),
+    totalEl,
+    el('div', { class: 'center-note', text: t('giftCoinHint'), style: { fontSize: '10.5px' } }),
+    sendBtn,
+  );
 
-    const grid = el('div', { class: 'gift-grid' });
-    const drawGrid = () => {
-      grid.innerHTML = '';
-      giftCatalog.forEach((g) => {
-        grid.append(el('button', {
-          class: 'gift-cell' + (selectedGift?.id === g.id ? ' is-sel' : ''),
-          onclick: () => { selectedGift = g; drawGrid(); drawFoot(); },
-        },
-          el('span', { class: 'gift-emoji', text: g.emoji }),
-          el('span', { class: 'gift-name', text: g.name }),
-          el('span', { class: 'gift-price', html: svg(ICON.coin, { width: 11, height: 11 }) + compact(g.price) }),
-        ));
+  let qtyEl;
+  renderGifts();
+  renderRecipients();
+  renderTotal();
+}
+let qtyEl = null;
+
+function showGiftFx(ev) {
+  const layer = $('#fxLayer');
+  if (!layer) return;
+  const fx = el('div', { class: 'fx-gift' },
+    el('div', { class: 'big', text: ev.gift?.emoji || '🎁' }),
+    ev.qty > 1 ? el('div', { class: 'qty', text: `×${ev.qty}` }) : null,
+    el('div', { class: 'who', text: `${ev.from?.displayName || ''} → ${ev.to?.user?.displayName || ev.to?.displayName || ''}` }));
+  layer.append(fx);
+  setTimeout(() => fx.remove(), 2900);
+  haptic(30);
+}
+
+/* ═══════════════════════════ seat sheet (occupied seat) ═══════════════════════════ */
+function openSeatSheet(App, room, member, seatIndex) {
+  const panel = $('#sheetPanel');
+  panel.innerHTML = '';
+  $('#sheet').hidden = false;
+  const u = member.user || {};
+  const isMe = member.userId === _viewerId;
+  const isMod = !!room.isMod;
+  const isOwner = room.ownerId === _viewerId;
+
+  const row = (icon, label, sub, fn, danger = false) => el('button', { class: 'list-row' + (danger ? ' is-danger' : ''), onclick: fn },
+    el('span', { class: 'li-icon' + (danger ? ' is-danger' : ''), html: svg(icon) }),
+    el('span', { class: 'li-body' }, el('span', { class: 'li-t', text: label }), sub ? el('span', { class: 'li-s', text: sub }) : null),
+    el('span', { class: 'li-end', html: svg(ICON.chev) }));
+
+  panel.append(
+    el('div', { class: 'sheet-grip' }),
+    el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' } },
+      avatarImg(u.avatar, u.displayName, 'avatar--lg'),
+      el('div', {},
+        el('div', { style: { fontWeight: 800, fontSize: '16px', display: 'flex', gap: '6px', alignItems: 'center' } },
+          el('span', { text: u.displayName }),
+          u.vip ? el('span', { class: 'vip', html: svg(ICON.crownS) + 'VIP' }) : null,
+          el('span', { class: 'lvl', text: u.level || 1 })),
+        el('div', { style: { color: 'var(--text-faint)', fontSize: '12px' } }, `ID ${u.userCode || '—'} · ${isBn() ? 'সিট' : 'Seat'} ${seatIndex + 1}`))),
+  );
+
+  const close = () => { $('#sheet').hidden = true; };
+
+  if (!isMe) {
+    panel.append(row(ICON.user, t('profile'), '', () => { close(); import('./extra.js').then(({ openPage }) => openPage.userProfile(App, member.userId)); }));
+    panel.append(row(ICON.comment, t('message'), '', () => { close(); import('./extra.js').then(({ openPage }) => openPage.chatThread(App, member.userId, u)); }));
+    panel.append(row(ICON.gift, t('sendGift'), `${selectedGiftPriceHint()}`, () => { close(); openGiftSheet(App, member.userId); }, false));
+  } else {
+    panel.append(row(member.isMuted ? ICON.mic : ICON.micOff, member.isMuted ? t('unmute') : t('mute'), '', async () => {
+      close();
+      if (member.isMuted) {
+        try { await ensureEngine().ensureMic(); } catch (err) { toast(micErrorText(err), 'err'); return; }
+      }
+      App.socket.emit('seat:mute', { muted: !member.isMuted }, (r) => { if (!r?.ok) toast(r?.error, 'err'); });
+    }));
+    panel.append(row(ICON.close, t('leaveSeat'), '', () => {
+      close();
+      App.socket.emit('seat:leave', {}, (r) => { if (!r?.ok) toast(r?.error, 'err'); });
+    }));
+  }
+
+  if (isMod && !isMe && member.userId !== room.ownerId) {
+    panel.append(el('div', { class: 'section-head' }, el('h2', { text: '🛡 ' + (isOwner ? t('host') : t('moderator')) })));
+    if (member.seat === null) {
+      panel.append(row(ICON.mic, t('inviteToSeat'), '', () => {
+        close();
+        App.socket.emit('seat:invite', { userId: member.userId }, (r) => {
+          if (r?.ok) toast(isBn() ? 'আমন্ত্রণ পাঠানো হয়েছে ✉️' : 'Invitation sent ✉️', 'ok');
+          else toast(r?.error || t('error'), 'err');
+        });
+      }));
+    }
+    if (member.seat !== null) {
+      panel.append(row(member.isMuted ? ICON.mic : ICON.micOff,
+        member.isMuted ? t('unmute') : t('mute') + ' (' + (isBn() ? 'জোর করে' : 'force') + ')', '',
+        () => { close(); App.socket.emit('seat:mute_other', { userId: member.userId, muted: !member.isMuted }, (r) => { if (!r?.ok) toast(r?.error, 'err'); }); }));
+    }
+    if (isOwner) {
+      panel.append(row(ICON.shield, room.mods?.includes(member.userId) ? t('removeMod') : t('makeMod'), '', () => {
+        close();
+        App.socket.emit('mod:set', { userId: member.userId, isMod: !room.mods?.includes(member.userId) }, (r) => { if (!r?.ok) toast(r?.error, 'err'); });
+      }));
+    }
+    if (member.seat !== null) {
+      panel.append(row(ICON.close, t('removeFromSeat'), '', () => {
+        close();
+        App.socket.emit('seat:kick', { userId: member.userId }, (r) => { if (!r?.ok) toast(r?.error, 'err'); });
+      }, true));
+    }
+    panel.append(row(ICON.ban, t('ban'), '', () => {
+      close();
+      confirmBox({ title: t('ban') + '?', body: u.displayName, okLabel: t('ban'), danger: true }).then((yes) => {
+        if (yes) App.socket.emit('room:ban', { userId: member.userId }, (r) => { if (!r?.ok) toast(r?.error, 'err'); });
       });
+    }, true));
+  }
+
+  if (!isMe) {
+    panel.append(el('div', { class: 'section-head' }, el('h2', { text: '⚙' })));
+    panel.append(row(ICON.ban, t('report'), '', () => { close(); import('./extra.js').then(({ openPage }) => openPage.report(App, 'user', member.userId, u.displayName)); }, true));
+  }
+}
+
+function selectedGiftPriceHint() { return giftCatalog.length ? `${giftCatalog[0].emoji} ${compact(giftCatalog[0].price)}+` : ''; }
+
+/* ═══════════════════════════ members sheet ═══════════════════════════ */
+/* Room gift leaderboard — top gifters / receivers of this room. */
+function openRoomLeaderboard(App) {
+  if (!currentRoomId) return;
+  const panel = $('#sheetPanel');
+  panel.innerHTML = '';
+  $('#sheet').hidden = false;
+  const close = () => { $('#sheet').hidden = true; };
+  const head = () => {
+    panel.innerHTML = '';
+    panel.append(el('div', { class: 'sheet-grip' }),
+      el('div', { class: 'sheet-title' }, el('span', { text: '🏆 ' + t('roomLeaderboard') })));
+  };
+  head();
+  panel.append(el('div', { class: 'spin' }));
+
+  api.roomGifters(currentRoomId).then((r) => {
+    head();
+    const medal = (i) => ['🥇', '🥈', '🥉'][i] || `${i + 1}.`;
+    const mk = (u, i, flow) => el('div', { class: 'user-row', onclick: () => { close(); openPage.userProfile(App, u.id); } },
+      el('span', { style: { width: '24px', textAlign: 'center', fontWeight: 800 }, text: medal(i) }),
+      avatarImg(u.avatar, u.display_name || u.displayName, 'avatar--sm'),
+      el('div', { class: 'meta' },
+        el('div', { class: 'name' },
+          el('span', { text: u.display_name || u.displayName || '—' }),
+          u.vip ? el('span', { class: 'vip', text: 'VIP' }) : null),
+        el('div', { class: 'sub', text: `${flow} ${compact(u.coins)} 🪙 · ${u.gifts} ${isBn() ? 'টি গিফট' : 'gifts'}` })));
+    const section = (title, rows, flow) => {
+      if (!rows?.length) return;
+      panel.append(el('div', { class: 'section-head', style: { marginTop: '2px' } }, el('h2', { text: title })));
+      rows.forEach((u, i) => panel.append(mk(u, i, flow)));
     };
-    panel.append(grid);
-
-    const foot = el('div', { class: 'gift-foot' });
-    function drawFoot() {
-      foot.innerHTML = '';
-      const qty = el('div', { class: 'qty' },
-        el('button', { type: 'button', text: '−', onclick: () => { giftQty = Math.max(1, giftQty - 1); drawFoot(); } }),
-        el('span', { text: String(giftQty) }),
-        el('button', { type: 'button', text: '+', onclick: () => { giftQty = Math.min(99, giftQty + 1); drawFoot(); } }),
-      );
-      const total = (selectedGift?.price || 0) * giftQty;
-      const send = el('button', {
-        class: 'btn btn--primary', style: { flex: '1' },
-        text: selectedGift ? `Send ${selectedGift.emoji} · ${compact(total)}` : 'Pick a gift',
-      });
-      send.disabled = !selectedGift;
-      send.addEventListener('click', () => {
-        send.disabled = true;
-        App.socket.emit('gift:send', {
-          giftId: selectedGift.id, toUserId: currentGiftTarget.userId, qty: giftQty,
-        }, (res) => {
-          if (!res?.ok) {
-            toast(res?.error || 'Gift failed', 'err');
-            send.disabled = false;
-            return;
-          }
-          App.setWallet({ coins: res.coins });
-          const w = panel.querySelector('#giftWallet span:last-child');
-          if (w) w.textContent = compact(res.coins);
-          toast(`${selectedGift.emoji} sent to ${currentGiftTarget.user?.displayName}`, 'ok');
-          send.disabled = false;
-        });
-      });
-      foot.append(qty, send);
+    if (!r.gifters?.length && !r.receivers?.length) {
+      panel.append(el('div', { class: 'empty-state', style: { padding: '26px' } },
+        el('div', { class: 'empty-emoji', text: '🎁' }),
+        el('p', { text: t('noGiftsYet') })));
+      return;
     }
-
-    selectedGift = selectedGift || giftCatalog[0];
-    drawGrid();
-    drawFoot();
-    panel.append(foot);
-    sheet.hidden = false;
-  }
-
-  // ── socket events ────────────────────────────────────────────────────────
-  const socketHandlers = {
-    'room:state': (snap) => {
-      if (!snap || snap.id !== room?.id) return;
-      room = { ...room, ...snap };
-      renderRoom();
-      renderSeats();
-      if (App.current !== 'room') { /* keep background state fresh */ }
-    },
-
-    'room:message': (msg) => {
-      appendMessage(msg);
-    },
-
-    'room:seat': (p) => {
-      if (!room) return;
-      const idx = p.seat;
-      if (typeof idx === 'number') {
-        // rebuild from the incoming member where possible
-        const existing = room.seats.map((s) => s);
-        if (p.member) existing[idx] = p.member.seat === null ? null : p.member;
-        else existing[idx] = null;
-        room.seats = existing;
-      }
-      renderSeats();
-      if (p.promoted && p.userId === App.user?.id) {
-        toast('You were moved up to the mic 🎙️', 'ok');
-        App.socket.emit('room:snapshot', {}, applyPeers);
-      }
-    },
-
-    'room:seatlock': (p) => { if (room && room.seats[p.seat]) room.seats[p.seat].isLocked = p.locked; renderSeats(); },
-
-    'room:hand': (p) => {
-      if (!room) return;
-      const m = room.members.find((x) => x.userId === p.userId);
-      if (m) m.handUp = p.up;
-      if (room.seats) room.seats.forEach((s) => { if (s && s.userId === p.userId) s.handUp = p.up; });
-      renderSeats();
-    },
-
-    'room:speaking': (p) => {
-      const node = seatsWrap.querySelector(`.seat[data-user="${p.userId}"]`);
-      if (node) node.classList.toggle('is-speaking', p.speaking && node.dataset.muted !== '1');
-      if (room) {
-        const m = room.members.find((x) => x.userId === p.userId);
-        if (m) m.speaking = p.speaking;
-      }
-    },
-
-    'room:gift': (g) => {
-      playGiftFx(g);
-      if (g.to?.userId === App.user?.id) haptic(30);
-    },
-
-    'room:member_join': (p) => { if (room) { room.members = p.room?.members || room.members; renderRoom(); renderSeats(); } },
-    'room:member_leave': (p) => { if (room) { room.members = p.room?.members || room.members; renderRoom(); renderSeats(); } },
-
-    'seat:granted': (p) => {
-      if (p.roomId !== room?.id) return;
-      toast('A mic seat opened up for you 🎙️', 'ok');
-      App.socket.emit('room:snapshot', {}, applyPeers);
-    },
-    'seat:revoked': (p) => {
-      if (p.roomId !== room?.id) return;
-      toast(p.reason === 'banned' ? 'You were removed by the host' : 'The host moved you off the mic', 'err');
-      voice?.goListener();
-      App.socket.emit('room:snapshot', {}, applyPeers);
-    },
-
-    'room:closed': (p) => {
-      if (!room) return;
-      toast(p.reason === 'host_ended' ? 'The host ended the room' : 'Room closed');
-      teardownVoice();
-      root.hidden = true;
-      room = null;
-      App.events.emit('rooms:refresh');
-    },
-
-    // personalised peer list — this is what actually builds/tears down audio
-    'room:peers': (p) => {
-      if (!room || p.roomId !== room.id) return;
-      voice?.syncPeers(p.peers || []).catch(() => {});
-    },
-  };
-
-  let socketAttached = null;   // the socket we have already bound handlers to
-
-  function attachSocket() {
-    const s = App.socket;
-    if (!s || socketAttached === s) return;   // never double-bind
-    socketAttached = s;
-
-    for (const [evt, fn] of Object.entries(socketHandlers)) s.on(evt, fn);
-
-    s.on('disconnect', () => {
-      if (!root.hidden) toast('Connection lost — reconnecting…', 'err');
-    });
-    s.on('connect', () => {
-      // re-establish membership + audio after a network blip
-      if (!root.hidden && room) {
-        s.emit('room:join', { roomId: room.id, pin }, (res) => {
-          if (res?.ok) { room = res.room; renderRoom(); renderSeats(); startVoice(res.peers || []); }
-        });
-      }
-    });
-  }
-
-  // socket is created later by app.js; hook as soon as it exists
-  App.events.on('started', attachSocket);
-  App.events.on('socket', ({ connected }) => { if (connected) attachSocket(); });
-
-  // ── chat rendering ───────────────────────────────────────────────────────
-  function renderChat(reset) {
-    chatLog.innerHTML = '';
-    if (!room) return;
-    (room.messages || []).slice(-50).forEach((m) => appendMessage(m, true));
-    if (reset) requestAnimationFrame(() => { roomScroll.scrollTop = roomScroll.scrollHeight; });
-  }
-
-  function appendMessage(msg, quiet) {
-    const isMe = msg.userId === App.user?.id;
-    const isSystem = msg.kind === 'system' || msg.kind === 'join' || msg.kind === 'leave';
-    const isGift = msg.kind === 'gift';
-
-    const cls = ['chat-msg'];
-    if (isMe) cls.push('is-me');
-    if (isSystem) cls.push('is-system');
-    if (isGift) cls.push('is-gift');
-    if (msg.user?.vip) cls.push('is-vip');
-
-    const node = el('div', { class: cls.join(' ') });
-    if (!isSystem) node.append(el('img', { src: msg.user?.avatar || '', alt: '', loading: 'lazy' }));
-
-    const body = el('div', { class: 'chat-msg-body' });
-    if (!isSystem) {
-      body.append(el('div', { class: 'chat-msg-name', text: isMe ? 'You' : (msg.user?.displayName || 'Guest') }));
-    }
-    body.append(el('div', { class: 'chat-msg-text', text: msg.body }));
-    node.append(body);
-
-    chatLog.append(node);
-    if (chatLog.children.length > 120) chatLog.firstElementChild.remove();
-
-    const nearBottom = roomScroll.scrollHeight - roomScroll.scrollTop - roomScroll.clientHeight < 220;
-    if (nearBottom || isMe) requestAnimationFrame(() => { roomScroll.scrollTop = roomScroll.scrollHeight; });
-  }
-
-  // ── gift animation ───────────────────────────────────────────────────────
-  function playGiftFx(g) {
-    const layer = $('#fxLayer');
-    if (!layer) return;
-    const fx = el('div', { class: 'fx-gift' },
-      el('div', { class: 'fx-gift-emoji', text: g.gift.emoji }),
-      el('div', { class: 'fx-gift-label', text: `${g.from?.displayName || 'Someone'} → ${g.to?.user?.displayName || ''} ×${g.qty}` }),
-    );
-    layer.append(fx);
-    setTimeout(() => fx.remove(), 2800);
-
-    // burst of small emoji
-    for (let i = 0; i < Math.min(8, g.qty + 3); i++) {
-      const b = el('div', {
-        class: 'fx-bubble',
-        text: g.gift.emoji,
-        style: {
-          left: (12 + Math.random() * 76) + '%',
-          bottom: (16 + Math.random() * 40) + '%',
-          animationDelay: (i * 90) + 'ms',
-        },
-      });
-      layer.append(b);
-      setTimeout(() => b.remove(), 2400 + i * 90);
-    }
-  }
-
-  // ── keyboard: ESC leaves the room ────────────────────────────────────────
-  document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape' && !root.hidden) leaveRoom('left');
+    section('🎁 ' + t('topGifters'), r.gifters, '📤');
+    section('💎 ' + t('topReceivers'), r.receivers, '📥');
+  }).catch((e) => {
+    head();
+    panel.append(el('div', { class: 'empty-state' }, el('p', { text: e.message })));
   });
+}
 
-  // clean up if the tab is closed mid-room
-  window.addEventListener('pagehide', () => { if (room) App.socket?.emit('room:leave', {}); });
+function openMembersSheet(App) {
+  if (!snap) return;
+  const panel = $('#sheetPanel');
+  panel.innerHTML = '';
+  $('#sheet').hidden = false;
+  const close = () => { $('#sheet').hidden = true; };
 
-  // ── public-ish API for other screens ─────────────────────────────────────
-  App.room = {
-    get current() { return room; },
-    joinByInvite: (roomId, pinCode) => App.events.emit('room:open', { roomId, pin: pinCode }),
+  const speakers = (snap.members || []).filter((m) => m.seat !== null);
+  const listeners = (snap.members || []).filter((m) => m.seat === null);
+
+  const mk = (m) => el('div', { class: 'user-row', onclick: () => { close(); openSeatSheet(App, snap, m, m.seat ?? -1); } },
+    avatarImg(m.user?.avatar, m.user?.displayName, 'avatar--sm'),
+    el('div', { class: 'meta' },
+      el('div', { class: 'name' },
+        el('span', { text: m.user?.displayName || '—' }),
+        m.userId === snap.ownerId ? el('span', { class: 'badge-host', text: t('host') }) : null,
+        snap.mods?.includes(m.userId) ? el('span', { class: 'badge-mod', text: 'MOD' }) : null,
+        el('span', { class: 'lvl', text: m.user?.level || 1 })),
+      el('div', { class: 'sub' },
+        el('span', { class: 'on-dot' + (m.speaking ? '' : ' is-off') }),
+        el('span', { text: `${m.isMuted ? '🔇 ' : '🎙 '}${m.seat !== null ? (isBn() ? 'সিট' : 'Seat') + ' ' + (m.seat + 1) : '🎧 ' + t('listeners')}${m.handUp ? ' · ✋' : ''}` }))));
+
+  panel.append(
+    el('div', { class: 'sheet-grip' }),
+    el('div', { class: 'sheet-title' }, el('span', { text: '👥 ' + t('members') }), el('span', { class: 'sub', text: String(snap.members?.length || 0) })),
+    el('button', { class: 'list-row', style: { margin: '8px 12px 2px' }, onclick: () => { close(); openRoomLeaderboard(App); } },
+      el('span', { class: 'li-icon', text: '🏆' }),
+      el('span', { class: 'li-body' },
+        el('span', { class: 'li-t', text: t('roomLeaderboard') }),
+        el('span', { class: 'li-s', text: '🎁 ' + t('topGifters') + ' · 💎 ' + t('topReceivers') })),
+      el('span', { class: 'li-end', html: svg(ICON.chev) })),
+  );
+  if (speakers.length) {
+    panel.append(el('div', { class: 'section-head', style: { marginTop: '0' } }, el('h2', { text: '🎙 ' + (isBn() ? 'কথা বলছেন' : 'On mic') })));
+    speakers.forEach((m) => panel.append(mk(m)));
+  }
+  if (listeners.length) {
+    panel.append(el('div', { class: 'section-head' }, el('h2', { text: '🎧 ' + t('listeners') }), el('span', { class: 'count', text: String(listeners.length) })));
+    listeners.forEach((m) => panel.append(mk(m)));
+  }
+  if (!snap.members?.length) panel.append(el('div', { class: 'empty-state' }, el('div', { class: 'empty-emoji', text: '🐼' })));
+}
+
+/* ═══════════════════════════ host menu ═══════════════════════════ */
+function openHostMenu(App) {
+  if (!snap) return;
+  const panel = $('#sheetPanel');
+  panel.innerHTML = '';
+  $('#sheet').hidden = false;
+  const close = () => { $('#sheet').hidden = true; };
+  const row = (icon, label, sub, fn, danger = false) => el('button', { class: 'list-row' + (danger ? ' is-danger' : ''), onclick: fn },
+    el('span', { class: 'li-icon' + (danger ? ' is-danger' : ''), html: svg(icon) }),
+    el('span', { class: 'li-body' }, el('span', { class: 'li-t', text: label }), sub ? el('span', { class: 'li-s', text: sub }) : null),
+    el('span', { class: 'li-end', html: svg(ICON.chev) }));
+
+  const isMod = !!snap.isMod;
+  const isOwner = snap.ownerId === _viewerId;
+
+  panel.append(
+    el('div', { class: 'sheet-grip' }),
+    el('div', { class: 'sheet-title' }, el('span', { text: '⚙ ' + (isBn() ? 'রুম অপশন' : 'Room options') })),
+  );
+
+  // theme picker
+  const themes = ['bamboo', 'gold', 'rose', 'ocean', 'violet', 'mint', 'sunset', 'night'];
+  const themeRow = el('div', { class: 'hlist', style: { padding: '6px 0 10px' } });
+  themes.forEach((th) => {
+    themeRow.append(el('button', {
+      class: 'chip' + (snap.theme === th ? ' is-active' : ''),
+      style: { background: `linear-gradient(135deg, var(--room-a, #34d399), var(--surface-2))` },
+      text: th,
+      onclick: () => {
+        if (!isMod) { toast(isBn() ? 'শুধু হোস্ট থিম বদলাতে পারে' : 'Only the host can change the theme', 'err'); return; }
+        App.socket.emit('room:update', { theme: th }, (r) => { if (r?.ok) { close(); toast(t('theme') + ' ✓'); } else toast(r?.error, 'err'); });
+      },
+    }));
+  });
+  panel.append(el('div', { style: { fontSize: '12.5px', fontWeight: 700, color: 'var(--text-dim)', padding: '4px 2px' }, text: '🎨 ' + t('theme') }), themeRow);
+
+  if (isMod) {
+    panel.append(row(ICON.edit, t('editRoom'), snap.title, () => { close(); openEditRoom(App); }));
+    panel.append(row(ICON.comment, snap.chatOpen === false ? (isBn() ? 'চ্যাট চালু করুন' : 'Enable chat') : (isBn() ? 'চ্যাট বন্ধ করুন' : 'Disable chat'), '', () => {
+      close();
+      App.socket.emit('room:update', { chatOpen: snap.chatOpen === false }, (r) => { if (!r?.ok) toast(r?.error, 'err'); });
+    }));
+    panel.append(row(ICON.shield, t('modLog'), '', async () => {
+      close();
+      App.socket.emit('room:modlog', {}, (r) => {
+        if (r?.ok) openModLog(r.log || []);
+        else toast(r?.error, 'err');
+      });
+    }));
+    panel.append(row(ICON.lock, snap.locked ? (isBn() ? 'রুম আনলক' : 'Unlock room') : (isBn() ? 'রুম লক' : 'Lock room'), '', () => {
+      close();
+      App.socket.emit('room:update', { locked: !snap.locked }, (r) => { if (!r?.ok) toast(r?.error, 'err'); });
+    }));
+    // seat locks
+    panel.append(row(ICON.lock, isBn() ? 'সিট লক/আনলক' : 'Seat locks', '', () => { close(); openSeatLocks(App); }));
+  }
+
+  panel.append(row(ICON.info, t('rules'), '', () => { close(); showRules(App); }));
+  panel.append(row(ICON.share, isBn() ? 'শেয়ার' : 'Share', '', () => { close(); shareRoom(App); }));
+  panel.append(row(ICON.ban, t('report'), '', () => { close(); import('./extra.js').then(({ openPage }) => openPage.report(App, 'room', snap.id, snap.title)); }, true));
+
+  if (isOwner) {
+    panel.append(row(ICON.close, t('endRoom'), '', () => {
+      close();
+      confirmBox({ title: t('endRoom') + '?', body: isBn() ? 'সবাই রুম থেকে বেরিয়ে যাবে' : 'Everyone will be removed', okLabel: t('endRoom'), danger: true }).then((yes) => {
+        if (yes) App.socket.emit('room:end', {}, (r) => { if (r?.ok) leaveRoom(App); else toast(r?.error, 'err'); });
+      });
+    }, true));
+  }
+  panel.append(row(ICON.logout, t('leaveRoom'), '', () => { close(); leaveRoom(App); }));
+}
+
+function openSeatLocks(App) {
+  const panel = $('#sheetPanel');
+  panel.innerHTML = '';
+  $('#sheet').hidden = false;
+  const close = () => { $('#sheet').hidden = true; };
+
+  const grid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: '10px', padding: '6px 0' } });
+  function render() {
+    grid.innerHTML = '';
+    (snap.seats || []).forEach((m, i) => {
+      const locked = lockedSeats.has(i);
+      grid.append(el('button', {
+        class: 'btn btn--sm ' + (locked ? 'btn--gold' : m ? 'btn--ghost' : 'btn--primary'),
+        text: `${i + 1}\n${locked ? '🔒' : m ? '👤' : '＋'}`,
+        style: { flexDirection: 'column', height: '54px', whiteSpace: 'pre', lineHeight: 1.2 },
+        onclick: () => {
+          App.socket.emit('seat:lock', { index: i, locked: !locked }, (r) => {
+            if (r?.ok) { lockedSeats.delete(i); if (locked === false) lockedSeats.add(i); render(); }
+            else toast(r?.error, 'err');
+          });
+        },
+      }));
+    });
+  }
+  render();
+  panel.append(
+    el('div', { class: 'sheet-grip' }),
+    el('div', { class: 'sheet-title' }, el('span', { text: '🔒 ' + (isBn() ? 'সিট লক' : 'Seat locks') }),
+      el('span', { class: 'sub', text: isBn() ? 'খালি সিট লক করুন' : 'lock empty seats' })),
+    grid,
+    el('div', { class: 'center-note', text: isBn() ? '🔒 = লক করা · 👤 = কেউ বসে আছে · ＋ = খোলা' : '🔒 locked · 👤 occupied · ＋ open' }),
+  );
+}
+
+function openModLog(log) {
+  const panel = $('#sheetPanel');
+  panel.innerHTML = '';
+  $('#sheet').hidden = false;
+  panel.append(
+    el('div', { class: 'sheet-grip' }),
+    el('div', { class: 'sheet-title' }, el('span', { text: '🛡 ' + t('modLog') })),
+  );
+  if (!log.length) panel.append(el('div', { class: 'empty-state' }, el('div', { class: 'empty-emoji', text: '📭' }), el('p', { text: t('empty') })));
+  log.forEach((l) => {
+    panel.append(el('div', { class: 'notif-row' },
+      el('div', { class: 'n-icon', text: { kick: '🚫', ban: '⛔', mute: '🔇', mod_add: '🛡', mod_remove: '🛡', lock: '🔒', unlock: '🔓' }[l.action] || '•' }),
+      el('div', { class: 'n-body' },
+        el('div', { class: 'n-t', text: `${l.actor} → ${l.action}${l.target ? ' → ' + l.target : ''}` }),
+        el('div', { class: 'n-b', text: l.note || '' })),
+      el('span', { class: 'n-time', text: clockLabel(l.createdAt) })));
+  });
+}
+
+function showRules(App) {
+  const panel = $('#sheetPanel');
+  panel.innerHTML = '';
+  $('#sheet').hidden = false;
+  panel.append(
+    el('div', { class: 'sheet-grip' }),
+    el('div', { class: 'sheet-title' }, el('span', { text: '📋 ' + t('rules') })),
+    el('p', { style: { color: 'var(--text-dim)', whiteSpace: 'pre-wrap', lineHeight: 1.7 }, text: snap?.rules || (isBn() ? 'রুমের কোনো নিয়ম নেই' : 'No rules set') }),
+  );
+}
+
+function openEditRoom(App) {
+  const panel = $('#sheetPanel');
+  panel.innerHTML = '';
+  $('#sheet').hidden = false;
+  const close = () => { $('#sheet').hidden = true; };
+
+  const title = el('input', { class: 'input', value: snap?.title || '', maxlength: '60', style: { paddingLeft: '14px' } });
+  const topic = el('input', { class: 'input', value: snap?.topic || '', maxlength: '120', style: { paddingLeft: '14px' } });
+  const rules = el('textarea', { class: 'input', maxlength: '300' });
+  rules.value = snap?.rules || '';
+  const save = el('button', { class: 'btn btn--primary btn--block', text: t('save') });
+  save.onclick = () => {
+    App.socket.emit('room:update', { title: title.value.trim(), topic: topic.value.trim(), rules: rules.value.trim() }, (r) => {
+      if (r?.ok) { toast(t('saved'), 'ok'); close(); } else toast(r?.error, 'err');
+    });
   };
 
-  return { leaveRoom };
+  panel.append(
+    el('div', { class: 'sheet-grip' }),
+    el('div', { class: 'sheet-title' }, el('span', { text: '✏️ ' + t('editRoom') })),
+    el('div', { class: 'field' }, el('label', { text: t('roomName') }), title),
+    el('div', { class: 'field' }, el('label', { text: t('roomTopic') }), topic),
+    el('div', { class: 'field' }, el('label', { text: t('roomRules') }), rules),
+    save,
+  );
+}
+
+async function shareRoom(App) {
+  const url = location.origin + location.pathname + '?room=' + (snap?.id || '');
+  const data = { title: `Panda Voice — ${snap?.title || ''}`, text: isBn() ? 'এসো ভয়েস রুমে 🐼🎙️' : 'Join this voice room 🐼🎙️', url };
+  try {
+    if (navigator.share) await navigator.share(data);
+    else { await navigator.clipboard.writeText(url); toast(t('copied') + ' ✓', 'ok'); }
+  } catch (_) {}
 }
