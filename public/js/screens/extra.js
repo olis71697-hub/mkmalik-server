@@ -679,11 +679,48 @@ openPage.settings = (App) => {
         row(ICON.shield, t('privacy'), '', () => openPage.privacy(App, settings)),
         row(ICON.ban, t('blockedUsers'), '', async () => openPage.blocked(App)),
         row(ICON.lock, t('changePassword'), '', () => openPage.changePassword(App))),
+      el('div', { class: 'section-head' }, el('h2', { text: '🔊 ' + t('volume') })),
+      el('div', { class: 'list-card', style: { padding: '14px' } },
+        (() => {
+          const slider = el('input', {
+            type: 'range', min: '0', max: '100', step: '5',
+            style: { width: '100%', accentColor: 'var(--brand-2, #22c55e)' },
+          });
+          try { slider.value = String(Math.round((Number(localStorage.getItem('panda.volume') ?? 1)) * 100)); } catch (_) { slider.value = '100'; }
+          slider.oninput = () => {
+            const v = Number(slider.value) / 100;
+            try { localStorage.setItem('panda.volume', String(v)); } catch (_) {}
+            App.events.emit('volume', v);   // the live room applies it instantly
+          };
+          return slider;
+        })()),
       el('div', { class: 'section-head' }, el('h2', { text: 'ℹ️ ' + t('about') })),
       el('div', { class: 'list-card' },
         row(ICON.help, t('helpSupport'), '', () => openPage.help(App)),
         row(ICON.info, t('termsTitle'), '', () => openPage.terms(App, 'terms')),
-        row(ICON.info, t('version'), '1.0.0 🐼', () => {})),
+        row(ICON.download || ICON.info, t('downloadData'), t('downloadDataNote'), async () => {
+          try {
+            const data = await api.exportData();
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = el('a', { href: url, download: 'panda-voice-my-data.json' });
+            document.body.append(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 4000);
+          } catch (e) { toast(e.message, 'err'); }
+        }),
+        row(ICON.info, t('cacheClear'), t('cacheClearNote'), async () => {
+          if (!(await confirmBox(t('cacheClear') + '?', t('cacheClearNote')))) return;
+            try { if ('caches' in window) for (const k of await caches.keys()) await caches.delete(k); } catch (_) {}
+            toast(t('cacheCleared') + ' ✓', 'ok');
+        }),
+        (() => {
+          // the REAL version straight from the server — never hardcoded
+          const verRow = row(ICON.info, t('version'), '…', () => {});
+          api.health().then((h) => {
+            verRow.querySelector('.li-s').textContent = `${h.version} · ${h.env} 🐼`;
+          }).catch(() => { verRow.querySelector('.li-s').textContent = '—'; });
+          return verRow;
+        })()),
       el('div', { class: 'list-card', style: { marginTop: '14px' } },
         row(ICON.close, t('deleteAccount'), t('deleteAccountWarn'), () => openPage.deleteAccount(App), true),
         row(ICON.logout, t('logoutAll'), t('logoutAllNote'), async () => {

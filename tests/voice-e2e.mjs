@@ -260,6 +260,32 @@ const lb0 = await apiFetch(`/api/rooms/${room3.room.id}/gifters`);
 check('a room with no gifts says so honestly', lb0.ok && lb0.data?.gifters?.length === 0 && lb0.data?.receivers?.length === 0,
   `${lb0.data?.gifters?.length}/${lb0.data?.receivers?.length}`);
 
+R.section('download my data — full account export');
+const exNo = await apiFetch('/api/me/export');
+check('export requires signing in', exNo.status === 401, `HTTP ${exNo.status}`);
+
+// B sends A a private DM, then A exports — it must be in A's export…
+await apiFetch(`/api/chat/${A.user.id}/messages`, { method: 'POST', token: B.token, body: { body: 'export-secret-msg-42' } });
+const exA = await apiFetch('/api/me/export', { token: A.token });
+const exAjson = JSON.stringify(exA.data);
+check('the export contains the whole account',
+  exA.ok && exA.data?.account?.username === A.user.username
+  && exA.data?.coinLedger?.length >= 1 && exA.data?.roomsHosted?.length >= 1
+  && exA.data?.settings?.language,
+  `${exA.data?.coinLedger?.length} ledger rows, ${exA.data?.roomsHosted?.length} rooms`);
+check("and A's DMs (including B's message)", exAjson.includes('export-secret-msg-42'));
+
+// …but never anyone else's data
+const exB = await apiFetch('/api/me/export', { token: B.token });
+const exBjson = JSON.stringify(exB.data);
+check("another user's export is their own account, with their side of the DM",
+  exB.ok && exB.data?.account?.username === B.user.username
+  && exB.data?.account?.id !== A.user.id
+  && exBjson.includes('export-secret-msg-42'),
+  `account: ${exB.data?.account?.username}`);
+check('export carries no password hashes or secret keys',
+  !exAjson.includes('password_hash') && !exAjson.includes('jwtSecret') && !exAjson.includes('"p256dh"'));
+
 R.section('host analytics — the rooms I hosted');
 const mrA = await apiFetch('/api/me/rooms', { token: A.token });
 check('the host sees every room they opened', mrA.ok && mrA.data?.rooms?.length >= 3 && mrA.data?.summary?.totalRooms >= 3,

@@ -106,8 +106,16 @@ function mount(App) {
       onLevel: (level) => updateOwnWave(level),
       onRemoteStream: () => {},
     });
+    // the volume chosen in Settings applies to every new room session
+    try {
+      const v = Number(localStorage.getItem('panda.volume'));
+      if (Number.isFinite(v)) engine.setVolume(v);
+    } catch (_) {}
     return engine;
   }
+
+  // live volume changes from the Settings page
+  App.events.on('volume', (v) => { try { engine?.setVolume(v); } catch (_) {} });
 
   S().on('room:state', (room) => { if (room?.id === currentRoomId) applySnapshot(App, room); });
   S().on('room:seatlock', ({ seat, locked }) => {

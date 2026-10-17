@@ -112,6 +112,7 @@ export const api = {
   dailyBonus: () => post('/me/daily-bonus'),
   changePassword: (currentPassword, newPassword) => post('/me/password', { currentPassword, newPassword }),
   deleteAccount: (body) => del('/me', body),
+  exportData: () => get('/me/export'),
 
   // ---- settings ----
   settings: () => get('/me/settings'),

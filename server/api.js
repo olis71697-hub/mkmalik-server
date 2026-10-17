@@ -595,6 +595,47 @@ router.put('/me/settings', auth.requireAuth, wrap((req, res) => {
 }));
 
 /** Delete my account and all my data. */
+/**
+ * "Download my data" — everything this account has produced, as JSON.
+ * Transparency by design: a user can always take their own data with them.
+ */
+router.get('/me/export', auth.requireAuth, wrap((req, res) => {
+  const u = get('SELECT * FROM users WHERE id = ?', req.user.id);
+  const uid = req.user.id;
+  const exportData = {
+    exportedAt: new Date().toISOString(),
+    app: config.brand.name,
+    account: {
+      id: u.id, username: u.username, displayName: u.display_name,
+      userCode: u.user_code, bio: u.bio, level: u.level, xp: u.xp,
+      vip: !!u.vip, role: u.role, coins: u.coins, diamonds: u.diamonds,
+      phone: u.phone || null, email: u.email || null,
+      createdAt: u.created_at,
+    },
+    settings: getSettings(uid),
+    followers: all('SELECT follower_id, created_at FROM follows WHERE target_id = ?', uid),
+    following: all('SELECT target_id, created_at FROM follows WHERE follower_id = ?', uid),
+    blocked: all('SELECT target_id, created_at FROM blocks WHERE blocker_id = ?', uid),
+    roomsHosted: all(
+      `SELECT id, title, category, created_at, closed_at, peak_users, total_joined, gift_coins
+       FROM rooms WHERE owner_id = ? ORDER BY created_at DESC`, uid),
+    giftsSent: all(
+      `SELECT gift_id, qty, coins, to_id, room_id, created_at FROM gift_events WHERE from_id = ? ORDER BY created_at DESC`, uid),
+    giftsReceived: all(
+      `SELECT gift_id, qty, coins, from_id, room_id, created_at FROM gift_events WHERE to_id = ? ORDER BY created_at DESC`, uid),
+    coinLedger: all(
+      `SELECT delta, reason, meta, created_at FROM coin_ledger WHERE user_id = ? ORDER BY created_at DESC`, uid),
+    messages: all(
+      `SELECT conv_id, from_id, to_id, body, created_at FROM messages
+       WHERE from_id = ? OR to_id = ? ORDER BY created_at ASC`, uid, uid),
+    notifications: all(
+      `SELECT kind, title, body, meta, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC`, uid),
+    pushEndpoints: all('SELECT endpoint, created_at FROM push_subscriptions WHERE user_id = ?', uid),
+  };
+  res.setHeader('Content-Disposition', 'attachment; filename="panda-voice-my-data.json"');
+  res.json(exportData);
+}));
+
 router.delete('/me', auth.requireAuth, wrap((req, res) => {
   const u = get('SELECT * FROM users WHERE id = ?', req.user.id);
   const io = req.app.get('io');

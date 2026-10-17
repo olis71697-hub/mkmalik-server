@@ -186,6 +186,8 @@ window, or two phones on the same network:
 | Daily bonus with consecutive-day streaks (150 → 300 coins) | |
 | Host analytics: every room you opened with joins, peak listeners and gift earnings (crash-safe persistence) | |
 | Per-room gift leaderboard: top gifters & receivers of each room (survives the room closing) | |
+| "Download my data": full account export as JSON (profile, ledger, gifts, rooms, DMs, notifications) | |
+| Settings completed per spec: audio volume slider, cache clear, real server version | |
 | Moments, likes, comments | — |
 | Direct messages | — |
 | Accounts, sessions, follows | — |
