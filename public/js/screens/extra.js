@@ -38,7 +38,7 @@ function popAll() { while (stack.length) stack.pop().remove(); }
 
 /* ═══════════════ notifications ═══════════════ */
 openPage.notifications = (App) => {
-  pushPage(t('notifications'), async (body) => {
+  pushPage(t('notifications'), async (body, page) => {
     body.append(el('div', { class: 'spin' }));
     try {
       const r = await api.notifications();
@@ -52,19 +52,28 @@ openPage.notifications = (App) => {
           body.querySelectorAll('.notif-row').forEach((n) => n.classList.remove('is-unread'));
         } })));
 
-      const ICONS = { follow: '👥', gift: '🎁', message: '💬', levelup: '🎉', report: '🚩', like: '❤️', comment: '💬', system: '🔔' };
+      const ICONS = { follow: '👥', gift: '🎁', message: '💬', levelup: '🎉', report: '🚩', like: '❤️', comment: '💬', live: '🔴', system: '🔔' };
       if (!r.notifications?.length) {
         body.append(el('div', { class: 'empty-state' }, el('div', { class: 'empty-emoji', text: '🔔' }), el('h3', { text: t('empty') })));
         return;
       }
       const list = el('div', { class: 'list-card' });
       r.notifications.forEach((n) => {
-        list.append(el('div', { class: 'notif-row' + (n.seen ? '' : ' is-unread') },
+        const row = el('div', { class: 'notif-row' + (n.seen ? '' : ' is-unread') },
           el('div', { class: 'n-icon', text: ICONS[n.kind] || '🔔' }),
           el('div', { class: 'n-body' },
             el('div', { class: 'n-t', text: n.title }),
             el('div', { class: 'n-b', text: n.body })),
-          el('span', { class: 'n-time', text: agoLabel(n.createdAt) })));
+          el('span', { class: 'n-time', text: agoLabel(n.createdAt) }));
+        // "X is live" notifications jump straight into the room
+        if (n.meta?.roomId) {
+          row.style.cursor = 'pointer';
+          row.onclick = () => {
+            closePage(page);
+            import('./room.js').then(({ openRoom }) => openRoom(App, n.meta.roomId));
+          };
+        }
+        list.append(row);
       });
       body.append(list);
     } catch (e) {

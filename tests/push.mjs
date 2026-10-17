@@ -84,6 +84,35 @@ r.check('test push answers with a structured result',
   res.ok && typeof res.data?.ok === 'boolean' && (res.data.ok || res.data.error),
   res.data?.ok ? `sent=${res.data.sent}` : (res.data?.error || '').slice(0, 60));
 
+// ── followed host goes live → notification + push attempt ──────────────────
+r.section('gone-live notifications');
+const host = await freshUser('Live Host');
+const fan = await freshUser('Fan');
+const bystander = await freshUser('Bystander');
+await apiFetch(`/api/users/${host.user.id}/follow`, { method: 'POST', token: fan.token });
+
+const created = await apiFetch('/api/rooms', {
+  method: 'POST', token: host.token,
+  body: { title: 'Fan notification test room', category: 'party' },
+});
+r.check('the host created a room', !!created.data?.room?.id, created.data?.room?.id);
+
+const fanNotifs = (await apiFetch('/api/notifications', { token: fan.token })).data?.notifications || [];
+const liveNotif = fanNotifs.find((n) => n.kind === 'live' && n.meta?.roomId === created.data.room.id);
+r.check('the follower received a gone-live notification', !!liveNotif,
+  liveNotif ? `${liveNotif.title} → ${liveNotif.meta.roomId}` : 'none');
+
+const byNotifs = (await apiFetch('/api/notifications', { token: bystander.token })).data?.notifications || [];
+r.check('non-followers are not notified', !byNotifs.some((n) => n.kind === 'live'));
+
+const priv = await apiFetch('/api/rooms', {
+  method: 'POST', token: host.token,
+  body: { title: 'Secret room', category: 'party', isPrivate: true },
+});
+const fanAfter = (await apiFetch('/api/notifications', { token: fan.token })).data?.notifications || [];
+r.check('private rooms do not announce themselves',
+  !!priv.data?.room?.id && !fanAfter.some((n) => n.kind === 'live' && n.meta?.roomId === priv.data.room.id));
+
 // ── the client side really wires the Push API ──────────────────────────────
 r.section('client side');
 const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
@@ -96,6 +125,10 @@ r.check('settings has a real push toggle (Push API subscribe flow)',
 
 const apiJs = fs.readFileSync(path.join(ROOT, 'js/api.js'), 'utf8');
 r.check('client talks to the push endpoints', /\/push\/key/.test(apiJs) && /\/push\/subscribe/.test(apiJs));
+
+const appJs = fs.readFileSync(path.join(ROOT, 'js/app.js'), 'utf8');
+r.check('a notification deep link (#room=) opens the room', /#room=/.test(appJs) && /openRoom\(App, roomId\)/.test(appJs));
+r.check('notification rows with a roomId are clickable', /meta\?\.roomId/.test(extra));
 
 const serverPush = fs.readFileSync(path.resolve(here, '..', 'server/push.js'), 'utf8');
 r.check('server prunes dead endpoints (410/404)', /410/.test(serverPush) && /404/.test(serverPush));

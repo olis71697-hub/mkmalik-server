@@ -36,7 +36,7 @@ const ROOM_CATEGORIES = [
 const THEMES = ['bamboo', 'gold', 'rose', 'ocean', 'violet', 'mint', 'sunset', 'night'];
 
 /** Coin packages for the Wallet. Prices are display currency (default BDT);
- *  coins are only ever credited after the (mock or real) gateway confirms. */
+ *  coins are only ever credited after a REAL gateway confirms the payment. */
 const COIN_PACKAGES = [
   { id: 'p100',   coins: 100,   price: 20,   label: ' starter',  bonus: 0 },
   { id: 'p520',   coins: 520,   price: 99,   label: ' popular',  bonus: 20 },
@@ -703,6 +703,26 @@ router.post('/rooms', auth.requireAuth, wrap((req, res) => {
   run('UPDATE users SET role = ? WHERE id = ? AND role = ?', 'host', req.user.id, 'user');
 
   const room = state.loadRoom(id);
+
+  // ---- the host went live: tell everyone who follows them -----------------
+  // A row in notifications + a live socket event when they are online, a real
+  // Web Push when they are not. Room creation is rate-limited per user, so
+  // this can never become spam.
+  if (!isPrivate) {
+    const io = req.app.get('io');
+    const followers = all('SELECT follower_id FROM follows WHERE target_id = ? LIMIT 500', req.user.id);
+    for (const f of followers) {
+      if (!getSettings(f.follower_id).notify_follow) continue;
+      const n = notify(f.follower_id, 'live', `${req.user.display_name} is live 🔴`,
+        `${title} — এখনই যোগ দিন`, { roomId: id, hostId: req.user.id });
+      try { if (io) io.to(`user:${f.follower_id}`).emit('notification', n); } catch (_) {}
+      push.sendToUser(f.follower_id, {
+        kind: 'live', title: `${req.user.display_name} is live 🔴`,
+        body: title, tag: 'live-' + id, url: './#room=' + id,
+      }).catch(() => {});
+    }
+  }
+
   res.status(201).json({ room: state.card(room), pin: room.pinCode });
 }));
 
@@ -886,23 +906,20 @@ router.post('/wallet/exchange', auth.requireAuth, wrap((req, res) => {
 }));
 
 /**
- * Buy coins.
+ * Buy coins — REAL gateway only.
  *
- * PAYMENTS_MODE=mock (default): the "gateway" accepts any payment reference
- * matching MOCK-xxxx (the client generates one). The purchase is stored,
- * UNIQUE(payment_ref) makes double-crediting impossible, and the transaction
- * history shows it as a mock purchase.
- *
- * PAYMENTS_MODE=live: set PURCHASE_VERIFY_URL. The server calls the real
- * gateway with paymentRef BEFORE crediting a single coin, and only credits
- * when the gateway says paid. Without a gateway response nothing is credited.
+ * PAYMENTS_MODE=live + PURCHASE_VERIFY_URL: the server calls the gateway with
+ * the payment reference BEFORE crediting a single coin, and only credits when
+ * the gateway says paid. Anything else (no gateway configured) is refused with
+ * 503 payments_not_configured — coins are never invented. UNIQUE(payment_ref)
+ * keeps double-crediting impossible.
  */
 router.post('/wallet/purchase', auth.requireAuth, wrap(async (req, res) => {
   const b = req.body || {};
   const pkg = COIN_PACKAGES.find((p) => p.id === String(b.packageId || ''));
   if (!pkg) throw badRequest('Unknown package');
   const ref = String(b.paymentRef || '').trim();
-  const method = String(b.paymentMethod || 'mock');
+  const method = String(b.paymentMethod || 'unspecified');
   if (!/^[A-Za-z0-9-]{8,48}$/.test(ref)) throw badRequest('Invalid payment reference', 'bad_ref');
 
   // idempotency: the same reference can never be charged twice

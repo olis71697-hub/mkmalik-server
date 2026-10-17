@@ -366,6 +366,12 @@ function handleDeepLinks() {
   if (params.get('action') === 'create' && App.user) {
     setTimeout(() => openPage.createRoom(App), 600);
   }
+  // push notification / shared link: ./#room=<id> opens the room directly
+  const roomId = (location.hash.match(/^#room=([A-Za-z0-9_-]{6,40})/) || [])[1];
+  if (roomId && App.user) {
+    history.replaceState(null, '', location.pathname + location.search);
+    setTimeout(() => import('./screens/room.js').then(({ openRoom }) => openRoom(App, roomId)), 400);
+  }
 }
 App.events.on('user', () => handleDeepLinks());
 

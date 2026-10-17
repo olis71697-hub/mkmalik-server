@@ -64,7 +64,7 @@ const DICT = {
     welcomeBonus: 'স্বাগতম বোনাস',
     haveAccount: 'অ্যাকাউন্ট আছে? লগইন করুন',
     noAccount: 'অ্যাকাউন্ট নেই? রেজিস্ট্রেশন করুন',
-    otpDevNote: 'SMS গেটওয়ে এখনো সেট করা হয়নি — কোড এখানেই দেখানো হচ্ছে (ডেমো মোড)',
+    otpDevNote: 'ডেভ বাইপাস (OTP_DEV_BYPASS=1) — SMS গেটওয়ে যুক্ত নেই, কোড শুধু লোকাল টেস্টের জন্য দেখানো হচ্ছে',
     terms: 'শর্তাবলী',
     acceptTerms: 'আমি Terms of Service ও Privacy Policy পড়েছি এবং সম্মত',
 
@@ -343,7 +343,7 @@ const DICT = {
     welcomeBonus: 'Welcome bonus',
     haveAccount: 'Have an account? Log in',
     noAccount: 'No account? Sign up',
-    otpDevNote: 'SMS gateway not configured — the code is shown here (demo mode)',
+    otpDevNote: 'Dev bypass (OTP_DEV_BYPASS=1) — SMS gateway not connected, code shown for local testing only',
     terms: 'Terms',
     acceptTerms: 'I have read and accept the Terms of Service and Privacy Policy',
 

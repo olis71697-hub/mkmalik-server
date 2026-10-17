@@ -264,7 +264,7 @@ CREATE TABLE IF NOT EXISTS purchases (
   price         TEXT NOT NULL,
   currency      TEXT DEFAULT 'BDT',
   payment_ref   TEXT NOT NULL,
-  payment_method TEXT DEFAULT 'mock',
+  payment_method TEXT DEFAULT 'unspecified',
   status        TEXT DEFAULT 'pending',        -- pending | success | failed | refunded
   created_at    INTEGER NOT NULL,
   UNIQUE (payment_ref)

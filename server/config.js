@@ -119,7 +119,7 @@ const config = {
   // unless the gateway confirms the payment; until then the wallet shows an
   // honest "not configured" state.
   payments: {
-    mode: process.env.PAYMENTS_MODE || 'mock',
+    mode: process.env.PAYMENTS_MODE || 'unconfigured',   // 'live' is the only purchasing mode
     verifyUrl: process.env.PURCHASE_VERIFY_URL || '',
     verifyKey: process.env.PURCHASE_VERIFY_KEY || '',
     currency: process.env.PAYMENT_CURRENCY || 'BDT',

@@ -80,7 +80,7 @@ function status(userId) {
 
 /** The per-kind toggles from user_settings (default: on). */
 function wantsPush(userId, kind) {
-  const col = { follow: 'notify_follow', gift: 'notify_gift', dm: 'notify_message', message: 'notify_message' }[kind];
+  const col = { follow: 'notify_follow', live: 'notify_follow', gift: 'notify_gift', dm: 'notify_message', message: 'notify_message' }[kind];
   if (!col) return true;
   try {
     const s = get(`SELECT ${col} AS v FROM user_settings WHERE user_id = ?`, userId);
