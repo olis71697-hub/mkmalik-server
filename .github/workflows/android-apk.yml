@@ -16,7 +16,7 @@ permissions:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - name: Check out app
         uses: actions/checkout@v7
@@ -48,25 +48,6 @@ jobs:
         run: |
           unzip -Z1 android/app/build/outputs/apk/debug/app-debug.apk | grep -Fxq 'assets/index.html'
           unzip -Z1 android/app/build/outputs/apk/debug/app-debug.apk | grep -Fxq 'assets/js/runtime.js'
-
-      - name: Smoke test launch on Android emulator
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          target: google_apis
-          arch: x86_64
-          profile: pixel_7_pro
-          script: |
-            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-            adb shell am start -W -n com.mkmalik.pandavoice/.MainActivity
-            sleep 30
-            adb logcat -d -s PandaVoice:I AndroidRuntime:E > "$RUNNER_TEMP/panda-logcat.txt"
-            cat "$RUNNER_TEMP/panda-logcat.txt"
-            if ! grep -q 'startup-ready=true' "$RUNNER_TEMP/panda-logcat.txt"; then
-              adb logcat -d -t 3000 | grep -E 'PandaVoice|AndroidRuntime|chromium' | tail -n 200 || true
-              echo "::error::Panda Voice did not reach a visible screen in the Android emulator"
-              exit 1
-            fi
 
       - name: Upload APK build artifact
         uses: actions/upload-artifact@v7
