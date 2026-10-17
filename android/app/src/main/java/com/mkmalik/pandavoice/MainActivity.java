@@ -8,9 +8,13 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
 import android.view.View;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
@@ -23,10 +27,13 @@ import androidx.webkit.WebViewAssetLoader;
 public final class MainActivity extends Activity {
     private static final int REQUEST_MICROPHONE = 40;
     // Use a new path outside the old PWA service-worker scope (/assets/).
-    private static final String APP_URL = "https://appassets.androidplatform.net/panda/index.html?v=1.0.2";
+    private static final String APP_URL = "https://appassets.androidplatform.net/panda/index.html?v=1.0.3";
 
     private WebView webView;
     private PermissionRequest pendingMicRequest;
+    private boolean startupCheckScheduled;
+    private boolean startupErrorShown;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,6 +65,36 @@ public final class MainActivity extends Activity {
             }
 
             @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                if (request.isForMainFrame()) {
+                    Log.e("PandaVoice", "main-frame load error: " + error.getDescription());
+                    showStartupFailure();
+                }
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (startupCheckScheduled || !url.startsWith("https://appassets.androidplatform.net/panda/index.html")) return;
+                startupCheckScheduled = true;
+                mainHandler.postDelayed(() -> {
+                    if (webView == null || startupErrorShown) return;
+                    webView.evaluateJavascript(
+                            "(function(){var b=document.getElementById('boot');" +
+                            "return !!document.querySelector('#offlineScreen') || " +
+                            "!!document.querySelector('#authScreen:not([hidden])') || " +
+                            "!!document.querySelector('#onboarding:not([hidden])') || " +
+                            "!!document.querySelector('#app:not([hidden])') || " +
+                            "!!(b && b.style.display==='none');})()",
+                            result -> {
+                                Log.i("PandaVoice", "startup-ready=" + result);
+                                if (!"true".equals(result)) showStartupFailure();
+                            });
+                }, 25000);
+            }
+
+            @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 if ("appassets.androidplatform.net".equals(uri.getHost())) return false;
@@ -83,6 +120,22 @@ public final class MainActivity extends Activity {
 
         setContentView(webView);
         webView.loadUrl(APP_URL);
+    }
+
+    private void showStartupFailure() {
+        if (webView == null || startupErrorShown) return;
+        startupErrorShown = true;
+        String html = "<!doctype html><html lang='bn'><meta charset='utf-8'>" +
+                "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
+                "<body style='margin:0;background:#fffaf1;color:#24302a;font-family:sans-serif;" +
+                "display:grid;min-height:100vh;place-items:center;text-align:center'>" +
+                "<main style='padding:28px;max-width:360px'><div style='font-size:48px'>🐼</div>" +
+                "<h2>Panda Voice চালু হচ্ছে না</h2>" +
+                "<p>ইন্টারনেট সংযোগ দেখে আবার চেষ্টা করুন।</p>" +
+                "<button onclick=\"location.href='" + APP_URL + "'\" style='padding:12px 22px;" +
+                "border:0;border-radius:12px;background:#b26100;color:white;font-size:16px'>" +
+                "আবার চেষ্টা করুন</button></main></body></html>";
+        webView.loadDataWithBaseURL(APP_URL, html, "text/html", "UTF-8", null);
     }
 
     private void grantMicrophoneWhenAllowed(PermissionRequest request) {

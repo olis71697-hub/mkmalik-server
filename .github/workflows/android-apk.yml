@@ -16,7 +16,7 @@ permissions:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Check out app
         uses: actions/checkout@v7
@@ -49,6 +49,25 @@ jobs:
           unzip -Z1 android/app/build/outputs/apk/debug/app-debug.apk | grep -Fxq 'assets/index.html'
           unzip -Z1 android/app/build/outputs/apk/debug/app-debug.apk | grep -Fxq 'assets/js/runtime.js'
 
+      - name: Smoke test launch on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7_pro
+          script: |
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            adb shell am start -W -n com.mkmalik.pandavoice/.MainActivity
+            sleep 30
+            adb logcat -d -s PandaVoice:I AndroidRuntime:E > "$RUNNER_TEMP/panda-logcat.txt"
+            cat "$RUNNER_TEMP/panda-logcat.txt"
+            if ! grep -q 'startup-ready=true' "$RUNNER_TEMP/panda-logcat.txt"; then
+              adb logcat -d -t 3000 | grep -E 'PandaVoice|AndroidRuntime|chromium' | tail -n 200 || true
+              echo "::error::Panda Voice did not reach a visible screen in the Android emulator"
+              exit 1
+            fi
+
       - name: Upload APK build artifact
         uses: actions/upload-artifact@v7
         with:
@@ -60,13 +79,13 @@ jobs:
       - name: Publish direct APK download
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: panda-voice-android-v1.0.2
+          RELEASE_TAG: panda-voice-android-v1.0.3
         run: |
           set -euo pipefail
           cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/Panda-Voice.apk"
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/Panda-Voice.apk" --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "Panda Voice Android 1.0.2" --notes "Includes the Android WebView asset-loading fix. Download Panda-Voice.apk to install."
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "Panda Voice Android 1.0.3" --notes "Prevents a blank launch by avoiding stale WebView PWA service-worker data. Download Panda-Voice.apk to install."
           else
-            gh release create "$RELEASE_TAG" "$RUNNER_TEMP/Panda-Voice.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Panda Voice Android 1.0.2" --prerelease --notes "Includes the Android WebView asset-loading fix. Download Panda-Voice.apk to install."
+            gh release create "$RELEASE_TAG" "$RUNNER_TEMP/Panda-Voice.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Panda Voice Android 1.0.3" --prerelease --notes "Prevents a blank launch by avoiding stale WebView PWA service-worker data. Download Panda-Voice.apk to install."
           fi
