@@ -29,7 +29,10 @@ export const rel = (p) => BASE + String(p).replace(/^\/+/, '');
  * host can still reach a real backend that moves around.
  */
 export const BACKEND_HINT_URLS = [
+  // this branch first (fresh while this session runs), then the default
+  // branch (kept fresh by the scheduled live runs long after this session)
   'https://raw.githubusercontent.com/olis71697-hub/mkmalik-server/arena/e87dd7c5-mkmalik-server/backend.json',
+  'https://raw.githubusercontent.com/olis71697-hub/mkmalik-server/main/backend.json',
   rel('backend.json'),
 ];
 

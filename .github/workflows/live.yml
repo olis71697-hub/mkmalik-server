@@ -48,7 +48,6 @@ jobs:
         run: |
           set -e
           export NODE_ENV=production
-          export DEMO_AUTO_LOGIN=1
           export PORT=8080
           export HOST=127.0.0.1
           export TRUST_PROXY=1
@@ -125,9 +124,9 @@ jobs:
         env:
           T: ${{ secrets.GITHUB_TOKEN }}
           R: ${{ github.repository }}
-          # fixed, so scheduled runs on the default branch still advertise the
-          # address where the installed app looks for it
-          BRANCH: arena/bdc831c9-mkmalik-server
+          # advertise on the branch this run serves, so every copy of the
+          # app (any branch, any static host) can find the live backend
+          BRANCH: ${{ github.ref_name }}
         run: |
           URL=$(cat /tmp/url.txt)
 
