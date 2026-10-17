@@ -19,10 +19,18 @@ const state = require('./state');
 const dm = require('./dm');
 const realtime = require('./realtime');
 const push = require('./push');
+const filter = require('./filter');
 const {
   uid, shortCode, limiter, badRequest, notFound, forbidden, unauthorized,
   cleanText, assertUsername, assertPassword, safeJson, svgAvatar, pick,
 } = require('./util');
+
+/** Reject user-visible text the safety filter flags (chat, titles, names, bios). */
+function assertClean(text, label) {
+  if (!filter.checkText(text).ok) {
+    throw badRequest(`${label}-এ অশ্লীল/আপত্তিকর ভাষা ব্যবহার করা যাবে না`, 'chat_filtered');
+  }
+}
 
 const loginLimiter = limiter('login', config.limits.loginAttemptsPerMin, 60_000);
 const roomLimiter = limiter('room-create', config.limits.roomsCreatedPerHour, 3_600_000);
@@ -118,8 +126,7 @@ function publicProfile(u, viewerId) {
   const giftsOut = get('SELECT COUNT(*) c, COALESCE(SUM(coins),0) v FROM gift_events WHERE from_id = ?', u.id);
   const roomsHosted = get('SELECT COUNT(*) c FROM rooms WHERE owner_id = ?', u.id).c;
   const settings = getSettings(u.id);
-  const online = settings.show_online ? realtime.connected.has(u.id)
-    || (Date.now() - (u.last_seen_at || 0) < 30_000 && !!u.is_bot) : false;
+  const online = settings.show_online ? realtime.connected.has(u.id) : false;
   return {
     ...state.publicUser(u), followers, following, friends, isFollowing, blocked,
     giftsReceived: giftsIn.c, giftsReceivedCoins: giftsIn.v,
@@ -183,6 +190,7 @@ router.post('/auth/register', wrap((req, res) => {
   const username = assertUsername(String(req.body.username || '').trim());
   const password = assertPassword(String(req.body.password || ''));
   const displayName = cleanText(req.body.displayName || username, 24, 'name') || username;
+  assertClean(displayName, 'নাম');
 
   if (get('SELECT 1 FROM users WHERE username = ?', username)) {
     throw badRequest('এই ইউজারনেমটি আগে থেকেই আছে', 'username_taken');
@@ -292,6 +300,7 @@ router.post('/auth/otp/verify', wrap((req, res) => {
   let created = false;
   if (!user) {
     const displayName = cleanText(req.body?.displayName || '', 24, 'name') || ('Panda ' + phone.slice(-4));
+    assertClean(displayName, 'নাম');
     let username = 'user' + phone.replace(/\D/g, '').slice(-8);
     while (get('SELECT 1 FROM users WHERE username = ?', username)) username += Math.floor(Math.random() * 90 + 10);
     const id = uid();
@@ -431,8 +440,16 @@ router.patch('/me', auth.requireAuth, wrap((req, res) => {
   const p = req.body || {};
   const fields = [];
   const args = [];
-  if (p.displayName !== undefined) { fields.push('display_name = ?'); args.push(cleanText(p.displayName, 24, 'name') || req.user.display_name); }
-  if (p.bio !== undefined) { fields.push('bio = ?'); args.push(cleanText(p.bio, config.limits.maxBioLen, 'bio')); }
+  if (p.displayName !== undefined) {
+    const nextName = cleanText(p.displayName, 24, 'name') || req.user.display_name;
+    assertClean(nextName, 'নাম');
+    fields.push('display_name = ?'); args.push(nextName);
+  }
+  if (p.bio !== undefined) {
+    const nextBio = cleanText(p.bio, config.limits.maxBioLen, 'bio');
+    assertClean(nextBio || ' ', 'বায়ো');
+    fields.push('bio = ?'); args.push(nextBio);
+  }
   if (p.gender !== undefined && ['male', 'female', 'other', 'any'].includes(p.gender)) { fields.push('gender = ?'); args.push(p.gender); }
   if (p.country !== undefined) { fields.push('country = ?'); args.push(cleanText(p.country, 40, 'country')); }
   if (p.language !== undefined) { fields.push('language = ?'); args.push(cleanText(p.language, 20, 'language')); }
@@ -691,6 +708,9 @@ router.post('/rooms', auth.requireAuth, wrap((req, res) => {
   const category = ROOM_CATEGORIES.includes(b.category) ? b.category : 'party';
   const topic = cleanText(b.topic || '', 120, 'topic');
   const rules = cleanText(b.rules || '', 300, 'rules');
+  assertClean(title, 'রুমের নাম');
+  assertClean(topic || ' ', 'টপিক');
+  assertClean(rules || ' ', 'রুল');
   const tags = Array.isArray(b.tags) ? b.tags.slice(0, 4).map((t) => cleanText(String(t), 16, 'tag')).filter(Boolean) : [];
   const isPrivate = !!b.isPrivate;
   const theme = THEMES.includes(b.theme) ? b.theme : pick(THEMES);
@@ -994,7 +1014,7 @@ router.post('/wallet/topup', auth.requireAuth, wrap((req, res) => {
 // MOMENTS (kept for API compatibility)
 // ===========================================================================
 router.get('/moments', auth.optionalAuth, wrap((req, res) => {
-  const rows = all(`SELECT m.*, u.display_name, u.username, u.avatar, u.level, u.vip, u.is_bot
+  const rows = all(`SELECT m.*, u.display_name, u.username, u.avatar, u.level, u.vip
                     FROM moments m JOIN users u ON u.id = m.user_id
                     ORDER BY m.created_at DESC LIMIT 60`);
   const viewer = req.user?.id;
@@ -1085,8 +1105,15 @@ router.post('/chat/:userId/messages', auth.requireAuth, wrap((req, res) => {
       !get('SELECT 1 FROM follows WHERE follower_id = ? AND target_id = ?', to.id, req.user.id)) {
     throw forbidden('শুধুমাত্র ফলোয়াররাই এই ইউজারকে মেসেজ পাঠাতে পারে', 'dm_private');
   }
+  if (filter.isTimedOut(req.user.id)) {
+    throw forbidden(`আপনি সাময়িকভাবে চ্যাটে নিষিদ্ধ (অশ্লীলতা/স্প্যাম) — ${Math.ceil(filter.timeoutLeftSec(req.user.id) / 60)} মিনিট পরে আবার চেষ্টা করুন`, 'chat_timeout');
+  }
   const body = cleanText(req.body?.body || '', config.limits.maxMsgLen, 'message');
   if (!body) throw badRequest('Empty message');
+  if (!filter.checkText(body).ok) {
+    filter.recordStrike(req.user.id);
+    throw forbidden('বার্তাটি পাঠানো যায়নি — অশ্লীল/আপত্তিকর ভাষা ফিল্টার করা হয়েছে', 'chat_filtered');
+  }
   const msg = dm.sendDirect(req.user, to, body);
   const io = req.app.get('io');
   if (io) io.to(`user:${to.id}`).emit('dm:new', { message: msg, from: state.publicUser(req.user) });

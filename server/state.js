@@ -71,7 +71,6 @@ function loadRoom(roomId) {
     }
   }
   rooms.set(roomId, room);
-  if (isOfficialRoom(room)) respawnOfficialMembers(room);
   return room;
 }
 
@@ -87,7 +86,7 @@ const publicUser = (u) => u ? {
   id: u.id, username: u.username, displayName: u.display_name,
   avatar: u.avatar, level: u.level, vip: !!u.vip, role: u.role,
   userCode: u.user_code || null,
-  bio: u.bio || '', isBot: !!u.is_bot, coins: u.coins, diamonds: u.diamonds,
+  bio: u.bio || '', coins: u.coins, diamonds: u.diamonds,
 } : null;
 
 function publicMember(m) {
@@ -489,24 +488,13 @@ function sweep(liveMembers) {
   const t = Date.now();
   const closed = [];
   for (const room of rooms.values()) {
-    const official = isOfficialRoom(room);
-
     for (const m of [...room.members.values()]) {
       if (t - m.lastSeen <= GUEST_TTL_MS) continue;
       // a connected socket is the strongest signal of presence
       if (liveMembers && liveMembers.has(`${room.id}:${m.userId}`)) { m.lastSeen = t; continue; }
-      // official rooms keep their resident hosts on the mic
-      if (official && m.user?.is_bot) { m.lastSeen = t; continue; }
       if (m.seat !== null) room.seats[m.seat] = null;
       room.members.delete(m.userId);
       run('DELETE FROM room_members WHERE room_id=? AND user_id=?', room.id, m.userId);
-    }
-
-    if (official) {
-      respawnOfficialMembers(room);
-      room.emptySince = null;
-      room.peakUsers = Math.max(room.peakUsers, room.members.size);
-      continue;
     }
 
     if (room.members.size === 0) {
@@ -535,37 +523,20 @@ function liveRooms() {
   return [...rooms.values()];
 }
 
+function roomCount() { return liveRooms().length; }
+
 /**
- * Rooms whose host is a seeded official account stay open even when empty, so
- * the public grid always has somewhere to go. Real, human-owned rooms close
- * normally once everyone leaves.
+ * Every open room, loading any that only exist in the database (e.g. after a
+ * restart, or rooms created by the seeder).
  */
-function isOfficialRoom(room) {
-  const owner = get('SELECT is_bot FROM users WHERE id = ?', room.ownerId);
-  return !!(owner && owner.is_bot);
+function liveRooms() {
+  const openIds = all('SELECT id FROM rooms WHERE closed_at IS NULL').map((r) => r.id);
+  for (const id of openIds) if (!rooms.has(id)) loadRoom(id);
+  // drop anything that closed behind our back
+  for (const id of [...rooms.keys()]) if (!openIds.includes(id)) rooms.delete(id);
+  return [...rooms.values()];
 }
 
-/** Put an official room's regulars back on their seats (keeps the grid alive). */
-function respawnOfficialMembers(room) {
-  const rows = all(
-    `SELECT rm.user_id, rm.seat FROM room_members rm
-     JOIN users u ON u.id = rm.user_id
-     WHERE rm.room_id = ? AND u.is_bot = 1 AND rm.seat IS NOT NULL
-     ORDER BY rm.seat`, room.id);
-  const t = Date.now();
-  for (const r of rows) {
-    if (room.members.has(r.user_id)) { room.members.get(r.user_id).lastSeen = t; continue; }
-    const user = get('SELECT * FROM users WHERE id = ?', r.user_id);
-    if (!user) continue;
-    const member = {
-      userId: r.user_id, seat: r.seat, isMuted: true, isLocked: false, handUp: false,
-      joinedAt: t, lastSeen: t, speaking: false, user,
-    };
-    room.members.set(r.user_id, member);
-    room.seats[r.seat] = r.user_id;
-    run('UPDATE room_members SET last_seen = ? WHERE room_id = ? AND user_id = ?', t, room.id, r.user_id);
-  }
-}
 function getRoom(id) { return rooms.get(id) || null; }
 function stats() {
   // Load anything that only exists in the database first, otherwise the very
@@ -583,6 +554,6 @@ module.exports = {
   SEATS, publicUser, publicMember, snapshot, card, join, takeSeat, leaveSeat,
   setMute, setMuteOther, kickFromSeat, lockSeat, raiseHand, setSpeaking, heartbeat, leave,
   closeRoom, transferHost, sweep, loadRoom, getRoom, liveRooms, roomCount, stats,
-  isOfficialRoom, respawnOfficialMembers, canModerate, setModerator, banFromRoom,
+  canModerate, setModerator, banFromRoom,
   logModeration, modLog, GUEST_TTL_MS,
 };

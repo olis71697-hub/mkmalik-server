@@ -16,6 +16,7 @@ const { all, get, run, now } = require('./db');
 const { uid, limiter, badRequest, forbidden, notFound, cleanText } = require('./util');
 const { userFromToken } = require('./auth');
 const push = require('./push');
+const filter = require('./filter');
 
 /** Lazy require — api.js also requires this module, so a top-level require
  *  would create a cycle and hand back a half-built module. */
@@ -124,7 +125,7 @@ function mount(io) {
     // followers who asked for it hear that I came online
     if (wasOffline) {
       const meRow = me();
-      if (meRow && !meRow.is_bot) {
+      if (meRow) {
         const followers = all(
           `SELECT f.follower_id FROM follows f JOIN user_settings s ON s.user_id = f.follower_id
            WHERE f.target_id = ? AND s.notify_follow = 1 LIMIT 200`, socket.user.id);
@@ -448,8 +449,16 @@ function mount(io) {
         if (room.chatOpen === false && room.ownerId !== user.id && !room.mods.has(user.id) && user.role !== 'admin') {
           throw forbidden('হোস্ট চ্যাট বন্ধ রেখেছে', 'chat_closed');
         }
+        if (filter.isTimedOut(user.id)) {
+          throw forbidden(`আপনি সাময়িকভাবে চ্যাটে নিষিদ্ধ (অশ্লীলতা/স্প্যাম) — ${Math.ceil(filter.timeoutLeftSec(user.id) / 60)} মিনিট পরে আবার চেষ্টা করুন`, 'chat_timeout');
+        }
         const body = cleanText(payload?.body, config.limits.maxMsgLen, 'message');
         if (!body) throw badRequest('Empty message');
+        const verdict = filter.checkText(body);
+        if (!verdict.ok) {
+          filter.recordStrike(user.id);
+          throw forbidden('বার্তাটি পাঠানো যায়নি — অশ্লীল/আপত্তিকর ভাষা ফিল্টার করা হয়েছে', 'chat_filtered');
+        }
         const msg = pushMessage(room, {
           id: uid(), kind: 'text', body, userId: user.id,
           user: state.publicUser(user), meta: {}, createdAt: Date.now(),
@@ -587,8 +596,15 @@ function mount(io) {
         if (privacy === 'following' && !get('SELECT 1 FROM follows WHERE follower_id = ? AND target_id = ?', to.id, socket.user.id)) {
           throw forbidden('শুধুমাত্র ফলোয়াররাই এই ইউজারকে মেসেজ পাঠাতে পারে', 'dm_private');
         }
+        if (filter.isTimedOut(socket.user.id)) {
+          throw forbidden(`আপনি সাময়িকভাবে চ্যাটে নিষিদ্ধ (অশ্লীলতা/স্প্যাম) — ${Math.ceil(filter.timeoutLeftSec(socket.user.id) / 60)} মিনিট পরে আবার চেষ্টা করুন`, 'chat_timeout');
+        }
         const body = cleanText(payload?.body, config.limits.maxMsgLen, 'message');
         if (!body) throw badRequest('Empty message');
+        if (!filter.checkText(body).ok) {
+          filter.recordStrike(socket.user.id);
+          throw forbidden('বার্তাটি পাঠানো যায়নি — অশ্লীল/আপত্তিকর ভাষা ফিল্টার করা হয়েছে', 'chat_filtered');
+        }
         const sender = me();
         const msg = require('./dm').sendDirect(sender, to, body);
         emitUser(to.id, 'dm:new', { message: msg, from: state.publicUser(sender) });

@@ -176,6 +176,7 @@ window, or two phones on the same network:
 | Real (server-authoritative, works today) | Needs configuration |
 |---|---|
 | WebRTC audio, peer-to-peer mesh | SMS for phone/OTP login (`SMS_API_URL`) |
+| Chat safety filter: profanity/slurs (bn/en/romanized + leetspeak & separator evasion) rejected server-side, 3 strikes → 10-min chat timeout (`CHAT_FILTER=off` to disable) | |
 | Seat occupancy, mute, hand-raise, locks | Google Sign-In (`GOOGLE_CLIENT_ID`) |
 | Room chat + rate limiting, moderation | Coin purchases (`PAYMENTS_MODE=live` + verify URL) |
 | Gifts, coins, diamonds, diamond→coin exchange | TURN relay for strict NATs (`TURN_URL`) |
@@ -365,6 +366,7 @@ Copy `.env.example` to `.env`. Everything has a working default — highlights:
 | `CORS_ORIGINS` | `*` | Restrict for native clients |
 | `AUTH_ATTEMPTS_PER_MIN` | `12` | Sign-in / sign-up attempts per IP |
 | `OTP_DEV_BYPASS` | off | Dev-only: surface OTP codes without an SMS gateway |
+| `CHAT_FILTER` | on | Server-side profanity/slur filter for chat, DMs, titles, profiles |
 | `ROOMS_PER_HOUR` | `6` | Rooms one account may open per hour |
 
 ---

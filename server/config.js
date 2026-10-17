@@ -128,6 +128,14 @@ const config = {
   corsOrigins: (process.env.CORS_ORIGINS || '*').split(',').map((s) => s.trim()).filter(Boolean),
   trustProxy: bool(process.env.TRUST_PROXY, true),
 
+  // Server-side content safety: unambiguous profanity/slurs (Bengali +
+  // English + romanized) are rejected on the server in chat, DMs, room
+  // titles and profile text, and repeat offenders get a temporary chat
+  // timeout. Set CHAT_FILTER=off to disable for your deployment.
+  chatFilter: {
+    enabled: bool(process.env.CHAT_FILTER, true),
+  },
+
   // WebRTC — STUN is always on; TURN relays media when both peers sit behind
   // symmetric NATs. Point these at your own coturn / hosted TURN to make voice
   // work reliably across mobile networks.

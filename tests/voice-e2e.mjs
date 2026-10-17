@@ -186,6 +186,41 @@ check('host can remove someone from the mic', kickRes.ok);
 const endRes = await emitAck(s1, 'room:end', {});
 check('host can end the room', endRes.ok);
 
+R.section('chat safety filter (server-side, bn + en + evasion)');
+// fresh socket in a fresh room
+const room3 = await createRoom(A.token, { title: 'Safety filter room', category: 'chat' });
+const f1 = await connect(A.token);
+await emitAck(f1, 'room:join', { roomId: room3.room.id });
+
+// clean message passes before anything else
+const stillOk = await emitAck(f1, 'chat:send', { body: 'chat still works fine 🙂' });
+check('clean messages pass the filter', stillOk.ok, stillOk.error);
+
+const profanityEn = await emitAck(f1, 'chat:send', { body: 'you are a fucking idiot' });
+check('English profanity is rejected on the server', profanityEn.ok === false && profanityEn.code === 'chat_filtered',
+  profanityEn.code || profanityEn.error);
+const profanityBn = await emitAck(f1, 'chat:send', { body: 'তুমি একটা মাগি' });
+check('Bengali profanity is rejected', profanityBn.ok === false && profanityBn.code === 'chat_filtered', profanityBn.code);
+const evasion = await emitAck(f1, 'chat:send', { body: 'f.u.c.k you all' });
+check('separator evasion (f.u.c.k) is caught', evasion.ok === false && evasion.code === 'chat_filtered', evasion.code);
+
+// three strikes → the next (clean) message hits a temporary timeout
+const afterStrikes = await emitAck(f1, 'chat:send', { body: 'totally clean words now' });
+check('repeat offenders get a temporary chat timeout',
+  afterStrikes.ok === false && afterStrikes.code === 'chat_timeout',
+  afterStrikes.code + ' — ' + (afterStrikes.error || '').slice(0, 44));
+
+// DM filter (socket), via the untouched user B
+const f2 = await connect(B.token);
+const dmBad = await emitAck(f2, 'dm:send', { toUserId: A.user.id, body: 'sh1t happens, magi' });
+check('DM profanity is rejected', dmBad.ok === false && dmBad.code === 'chat_filtered', dmBad.code);
+
+// room titles with profanity are refused (REST)
+const badRoom = await apiFetch('/api/rooms', { method: 'POST', token: B.token, body: { title: 'khanki adda', category: 'party' } });
+check('room titles with profanity are refused', badRoom.status === 400 && badRoom.data?.code === 'chat_filtered',
+  `HTTP ${badRoom.status} ${badRoom.data?.code}`);
+
+f1.disconnect(); f2.disconnect();
 s1.disconnect(); s2.disconnect(); sockA.disconnect(); sockB.disconnect();
 
 process.exit(R.finish() ? 0 : 1);
