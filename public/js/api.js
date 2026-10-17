@@ -150,6 +150,7 @@ export const api = {
   packages: () => get('/wallet/packages'),
   purchase: (packageId, paymentMethod, paymentRef) =>
     post('/wallet/purchase', { packageId, paymentMethod, paymentRef }),
+  exchange: (diamonds) => post('/wallet/exchange', { diamonds }),
 
   // ---- moments (API kept) ----
   moments: () => get('/moments'),

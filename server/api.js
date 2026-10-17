@@ -232,6 +232,15 @@ router.post('/auth/otp/request', wrap(async (req, res) => {
   const phone = normalizePhone(req.body?.phone);
   otpLimiter.hit(phone);
 
+  // No SMS gateway → the honest answer is "not available". No code is ever
+  // printed on screen in a real deployment. (OTP_DEV_BYPASS=1 re-enables
+  // console delivery for local development, on purpose.)
+  if (!config.otp.smsApiUrl && !config.otp.devBypass) {
+    throw Object.assign(
+      new Error('SMS গেটওয়ে সংযোগ করা হয়নি — ফোন নম্বর দিয়ে লগইন এখন চালু নেই। ইউজারনেম/পাসওয়ার্ড ব্যবহার করুন (সার্ভারে SMS_API_URL সেট হলে চালু হবে)'),
+      { status: 503, code: 'sms_not_configured' });
+  }
+
   // purge expired codes for this number
   run('DELETE FROM otp_codes WHERE phone = ? AND expires_at < ?', phone, Date.now());
 
@@ -260,7 +269,8 @@ router.post('/auth/otp/request', wrap(async (req, res) => {
   res.json({
     ok: true, phone, exists: existing,
     delivery, ttlSec: Math.round(config.otp.ttlMs / 1000),
-    devCode: delivered ? undefined : code,
+    // only an explicit OTP_DEV_BYPASS=1 ever surfaces the code to the client
+    devCode: !delivered && config.otp.devBypass ? code : undefined,
   });
 }));
 
@@ -840,12 +850,39 @@ router.get('/wallet/packages', wrap((_req, res) => {
   res.json({
     packages: COIN_PACKAGES.map((p) => ({ ...p, currency: config.payments.currency })),
     mode: config.payments.mode,
+    exchange: { feePct: 10, minDiamonds: 10 },
     methods: [
       { id: 'bkash', label: 'bKash', emoji: '📱' },
       { id: 'nagad', label: 'Nagad', emoji: '💸' },
       { id: 'card', label: 'Card', emoji: '💳' },
     ],
   });
+}));
+
+/**
+ * Diamond → coin exchange (server-authoritative, no gateway involved).
+ * Gift diamonds become spendable coins at a 10% platform fee; the minimum
+ * keeps the ledger clean.
+ */
+router.post('/wallet/exchange', auth.requireAuth, wrap((req, res) => {
+  const diamonds = Math.floor(Number(req.body?.diamonds || 0));
+  if (!Number.isFinite(diamonds) || diamonds < 10) {
+    throw badRequest('সর্বনিম্ন ১০ ডায়মন্ড এক্সচেঞ্জ করা যায়', 'exchange_min');
+  }
+  const u0 = get('SELECT coins, diamonds FROM users WHERE id = ?', req.user.id);
+  if (u0.diamonds < diamonds) throw badRequest('পর্যাপ্ত ডায়মন্ড নেই', 'insufficient_diamonds');
+
+  const fee = Math.ceil((diamonds * 10) / 100);
+  const coins = diamonds - fee;
+  const t = Date.now();
+  tx(() => {
+    run('UPDATE users SET diamonds = diamonds - ?, coins = coins + ? WHERE id = ? AND diamonds >= ?',
+      diamonds, coins, req.user.id, diamonds);
+    run('INSERT INTO coin_ledger (id, user_id, delta, reason, meta, created_at) VALUES (?,?,?,?,?,?)',
+      uid(), req.user.id, coins, 'exchange', JSON.stringify({ diamonds, fee }), t);
+  });
+  const u = get('SELECT coins, diamonds FROM users WHERE id = ?', req.user.id);
+  res.json({ ok: true, exchanged: diamonds, fee, credited: coins, coins: u.coins, diamonds: u.diamonds });
 }));
 
 /**
@@ -879,23 +916,25 @@ router.post('/wallet/purchase', auth.requireAuth, wrap(async (req, res) => {
   }
 
   // ---- gateway verification -----------------------------------------------
-  let paid = false;
-  let gateway = 'mock';
-  if (config.payments.mode === 'live' && config.payments.verifyUrl) {
-    gateway = 'live';
-    try {
-      const r = await fetch(config.payments.verifyUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.payments.verifyKey },
-        body: JSON.stringify({ ref, packageId: pkg.id, amount: pkg.price, currency: config.payments.currency }),
-      });
-      const data = await r.json().catch(() => null);
-      paid = r.ok && data?.paid === true;
-    } catch (_) { paid = false; }
-  } else {
-    // mock gateway: deterministic rule — refs must start with MOCK-
-    paid = /^MOCK-[A-Za-z0-9-]{3,}$/.test(ref);
+  // Real payments only. Coins are credited solely when a configured gateway
+  // (PAYMENTS_MODE=live + PURCHASE_VERIFY_URL) confirms the reference — an
+  // unconfigured deployment refuses the purchase instead of faking it.
+  if (config.payments.mode !== 'live' || !config.payments.verifyUrl) {
+    throw Object.assign(
+      new Error('পেমেন্ট গেটওয়ে এখনো সংযোগ করা হয়নি — আসল টাকায় কয়েন কেনা চালু নেই (সার্ভারে PAYMENTS_MODE=live ও PURCHASE_VERIFY_URL সেট করুন)'),
+      { status: 503, code: 'payments_not_configured' });
   }
+  let paid = false;
+  const gateway = 'live';
+  try {
+    const r = await fetch(config.payments.verifyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.payments.verifyKey },
+      body: JSON.stringify({ ref, packageId: pkg.id, amount: pkg.price, currency: config.payments.currency }),
+    });
+    const data = await r.json().catch(() => null);
+    paid = r.ok && data?.paid === true;
+  } catch (_) { paid = false; }
 
   const id = uid();
   const t = Date.now();

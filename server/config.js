@@ -100,6 +100,10 @@ const config = {
     smsApiUrl: process.env.SMS_API_URL || '',
     smsApiKey: process.env.SMS_API_KEY || '',
     smsFrom: process.env.SMS_FROM || 'PandaVoice',
+    // Without an SMS gateway the OTP endpoint answers 503 honestly.
+    // Set OTP_DEV_BYPASS=1 only for local development to print codes
+    // to the server console / return them to the client.
+    devBypass: bool(process.env.OTP_DEV_BYPASS, false),
   },
 
   // Google Sign-In --------------------------------------------------------
@@ -108,11 +112,12 @@ const config = {
   googleClientId: process.env.GOOGLE_CLIENT_ID || '',
 
   // Wallet / coin purchases ------------------------------------------------
-  // 'mock'  → simulated gateway: any payment ref like "MOCK-xxxx" is accepted
-  //           once, credited once (idempotent), and clearly labelled in the UI.
-  // 'live'  → point PURCHASE_VERIFY_URL at your real gateway's verification
-  //           endpoint (SSLCommerz/bKash/Stripe etc.); the server then refuses
-  //           to credit coins unless the gateway confirms the payment.
+  // There is no mock crediting. Purchases work only when a REAL gateway is
+  // wired: PAYMENTS_MODE=live + PURCHASE_VERIFY_URL + PURCHASE_VERIFY_KEY
+  // pointing at your gateway's server-side verification endpoint
+  // (SSLCommerz/bKash/Nagad/Stripe etc.). The server refuses to credit coins
+  // unless the gateway confirms the payment; until then the wallet shows an
+  // honest "not configured" state.
   payments: {
     mode: process.env.PAYMENTS_MODE || 'mock',
     verifyUrl: process.env.PURCHASE_VERIFY_URL || '',

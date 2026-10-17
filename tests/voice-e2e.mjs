@@ -129,6 +129,28 @@ const spent = rosePrice * 5;
 check('sender coins deducted', beforeA - afterA === spent, `${beforeA} → ${afterA} (rose=${rosePrice})`);
 check('receiver diamonds credited', afterB - beforeB === spent, `${beforeB} → ${afterB}`);
 
+R.section('diamond → coin exchange (real economy, no gateway)');
+const meB1 = (await apiFetch('/api/me', { token: B.token })).data.user;
+const ex = await apiFetch('/api/wallet/exchange', { method: 'POST', token: B.token, body: { diamonds: 50 } });
+const meB2 = (await apiFetch('/api/me', { token: B.token })).data.user;
+check('exchange credits coins minus the 10% fee',
+  ex.ok && ex.data?.credited === 45 && meB2.coins - meB1.coins === 45 && meB1.diamonds - meB2.diamonds === 50,
+  `50 💎 → ${ex.data?.credited} 🪙 (${meB1.coins}→${meB2.coins} coins)`);
+const exSmall = await apiFetch('/api/wallet/exchange', { method: 'POST', token: B.token, body: { diamonds: 5 } });
+check('exchange enforces the minimum', !exSmall.ok && exSmall.data?.code === 'exchange_min', `HTTP ${exSmall.status} ${exSmall.data?.code}`);
+
+R.section('purchases stay honest without a real gateway');
+const pu = await apiFetch('/api/wallet/purchase', {
+  method: 'POST', token: A.token,
+  body: { packageId: 'p100', paymentMethod: 'bkash', paymentRef: 'MOCK-TRYFAKE123' },
+});
+check('no mock purchase is ever credited', pu.status === 503 && pu.data?.code === 'payments_not_configured',
+  `HTTP ${pu.status} ${pu.data?.code}`);
+const otpTry = await apiFetch('/api/auth/otp/request', { method: 'POST', body: { phone: '01700000000' } });
+check('phone OTP stays disabled until an SMS gateway exists',
+  otpTry.status === 503 && otpTry.data?.code === 'sms_not_configured',
+  `HTTP ${otpTry.status} ${otpTry.data?.code}`);
+
 // client may not mint coins
 const cheat = await emitAck(sockA, 'gift:send', { giftId: 'dragon', toUserId: B.user.id, qty: 99 });
 check('unaffordable gift is rejected by the server', cheat.ok === false, cheat.error);

@@ -97,7 +97,17 @@ export function mountAuth(App, onSignedIn) {
     p.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') btn.click(); });
 
     googleBtn.onclick = () => mountGoogle(App, onSignedIn, switchTo);
-    phoneBtn.onclick = () => switchTo('phone');
+    phoneBtn.onclick = async () => {
+      // honest gate: phone login needs a real SMS gateway on the server
+      try {
+        const h = await api.health();
+        if (!h.features?.sms) {
+          toast('SMS গেটওয়ে সংযোগ করা হয়নি (SMS_API_URL) — ফোন দিয়ে লগইন এখন চালু নেই। ইউজারনেম/পাসওয়ার্ড ব্যবহার করুন', 'err');
+          return;
+        }
+      } catch (_) { /* the request itself will explain if the server is gone */ }
+      switchTo('phone');
+    };
 
     card.innerHTML = '';
     card.append(

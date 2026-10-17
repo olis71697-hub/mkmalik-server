@@ -185,7 +185,12 @@ const DICT = {
     dailyBonus: 'ডেইলি বোনাস',
     claimBonus: 'বোনাস নিন',
     bonusClaimed: 'বোনাস নেওয়া হয়েছে',
-    mockPayNote: 'ডেমো পেমেন্ট গেটওয়ে — বাস্তব টাকা কাটবে না। বাস্তব গেটওয়ে (bKash/Nagad/Card) সংযোগের নির্দেশনা README-তে।',
+    gatewayNote: 'পেমেন্ট গেটওয়ে এখনো সংযোগ করা হয়নি — আসল টাকায় কয়েন কেনা চালু হবে না। গেটওয়ে (bKash/Nagad/কার্ড) যুক্ত হলে এখানে খুলে যাবে। ততদিন ডেইলি বোনাস ও ডায়মন্ড এক্সচেঞ্জ ব্যবহার করুন।',
+    exchangeTitle: 'ডায়মন্ড → কয়েন',
+    exchangeNote: 'গিফটে পাওয়া ডায়মন্ড কয়েনে বদলান — ১০% ফি, সর্বনিম্ন ১০ 💎',
+    exchangeBtn: 'এক্সচেঞ্জ করুন',
+    exchangeDone: 'এক্সচেঞ্জ সম্পন্ন',
+    giftCoinHint: 'কয়েন কম? ওয়ালেটে ডেইলি বোনাস নিন বা ডায়মন্ড এক্সচেঞ্জ করুন 💎→🪙',
     bonus: 'বোনাস',
 
     // profile
@@ -454,7 +459,12 @@ const DICT = {
     dailyBonus: 'Daily bonus',
     claimBonus: 'Claim',
     bonusClaimed: 'Bonus claimed',
-    mockPayNote: 'Demo payment gateway — no real money is charged. See the README for wiring a real gateway (bKash/Nagad/Card).',
+    gatewayNote: 'No payment gateway is connected yet — coin purchases stay off until one is (bKash/Nagad/card). Meanwhile, use the daily bonus and the diamond exchange.',
+    exchangeTitle: 'Diamonds → Coins',
+    exchangeNote: 'Turn gift diamonds into coins — 10% fee, minimum 10 💎',
+    exchangeBtn: 'Exchange',
+    exchangeDone: 'Exchange complete',
+    giftCoinHint: 'Low on coins? Claim the daily bonus or exchange diamonds 💎→🪙 in the wallet.',
     bonus: 'bonus',
 
     editProfile: 'Edit profile',

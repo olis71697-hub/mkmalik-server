@@ -567,7 +567,7 @@ export function openGiftSheet(App, presetRecipientId = null) {
       (() => { qtyEl = el('b', { text: '1' }); return qtyEl; })(),
       el('button', { text: '+', onclick: () => { qty = Math.min(99, qty + 1); qtyEl.textContent = qty; renderTotal(); } })),
     totalEl,
-    el('div', { class: 'center-note', text: t('mockPayNote'), style: { fontSize: '10.5px' } }),
+    el('div', { class: 'center-note', text: t('giftCoinHint'), style: { fontSize: '10.5px' } }),
     sendBtn,
   );
 
