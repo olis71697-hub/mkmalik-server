@@ -70,6 +70,25 @@ export function mountAuth(App, onSignedIn) {
 
   root.append(body);
 
+  // ── install as app — visible the moment a fresh link lands, before login ──
+  const standalone = !!(window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone);
+  if (!standalone) {
+    const btnInstall = el('button', { class: 'auth-install', text: t('authInstall') });
+    btnInstall.onclick = async () => {
+      haptic(8);
+      let m = null;
+      try { m = await import('../app.js'); } catch (_) { /* fall through to hints */ }
+      if (m?.installAvailable?.()) {
+        const r = await m.triggerInstall();
+        if (r === 'accepted') { toast(t('installDone'), 'ok'); haptic(30); }
+      } else {
+        const ua = navigator.userAgent || '';
+        toast(/iphone|ipad|ipod/i.test(ua) ? t('installHintIos') : t('installHintMenu'), '');
+      }
+    };
+    body.append(btnInstall);
+  }
+
   function busy(btn, on, label) {
     btn.disabled = on;
     btn.textContent = on ? '…' : label;

@@ -898,3 +898,12 @@ textarea.input { resize: none; min-height: 84px; padding-left: 14px; }
   background: var(--brand-2, #22c55e);
   box-shadow: 0 10px 26px rgba(34, 197, 94, 0.35);
 }
+
+/* ── install button on the auth screen ──────────────────────────────────── */
+.auth-install {
+  display: block; width: 100%; margin-top: 16px; padding: 12px 14px;
+  background: var(--brand-soft); color: var(--brand-2);
+  border: 1px dashed rgba(74, 222, 128, 0.45); border-radius: 14px;
+  font-weight: 700; font-size: 13px; cursor: pointer;
+}
+.auth-install:active { transform: scale(0.98); }
