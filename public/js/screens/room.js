@@ -4,7 +4,6 @@
 import { $, $$, el, toast, svg, ICON, compact, clockLabel, avatarImg, confirmBox, haptic, categoryEmoji } from '../util.js';
 import { t, isBn } from '../i18n.js';
 import { api, session } from '../api.js';
-import { isLocal } from '../runtime.js';
 import { VoiceEngine, loadIceServers } from '../rtc.js';
 
 export { openPage } from './extra.js';

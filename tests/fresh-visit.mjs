@@ -1,9 +1,10 @@
 /*
  * Panda Voice — integration test: first load.
  *
- * The boot splash must never be the last thing on screen. A visitor with no
- * saved session should either land straight in the app (demo auto-login) or get
- * a working sign-in screen — never a blank page.
+ * A first-time visitor must land on a REAL sign-in screen — the app never
+ * signs anyone in silently, shows no demo account and no fake data. The
+ * database starts empty of users, but the gift catalog (product data) must
+ * already be there.
  */
 
 import { JSDOM } from 'jsdom';
@@ -14,8 +15,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const BASE = process.env.BASE_URL || 'http://localhost:8080';
 
-const { ok: healthOk, demoAutoLogin } = await (await fetch(BASE + '/api/health')).json();
-if (!healthOk) { console.error('server is not healthy'); process.exit(1); }
+const health = await (await fetch(BASE + '/api/health')).json();
+if (!health.ok) { console.error('server is not healthy'); process.exit(1); }
 
 // ── boot the real app in a DOM with no stored session ──────────────────────
 const dom = new JSDOM(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'),
@@ -42,6 +43,8 @@ globalThis.fetch = (u, o) => realFetch(String(u).startsWith('/') ? BASE + u : u,
 window.fetch = globalThis.fetch;
 
 window.localStorage.clear();   // a genuinely first-time visitor
+// returning visitor (onboarding seen once) → straight to the sign-in form
+window.localStorage.setItem('panda.onboarded', '1');
 
 await import(path.join(ROOT, 'js/app.js'));
 await new Promise((r) => setTimeout(r, 1800));
@@ -54,30 +57,26 @@ const check = (name, ok, extra = '') => {
 };
 
 console.log('\n════ FIRST LOAD ════\n');
-console.log(`  server demo auto-login: ${demoAutoLogin ? 'on' : 'off'}`);
 
 const boot = $('#boot');
-const app = $('#app');
-
 check('boot splash is dismissed', boot.style.display === 'none');
-check('app shell is visible', !app.hidden);
 
-if (demoAutoLogin) {
-  const cards = window.document.querySelectorAll('#homeFeed .card').length;
-  const tabs = [...window.document.querySelectorAll('#homeTabs button')].map((t) => t.textContent);
-  const nav = [...window.document.querySelectorAll('.tabbar-item span')].map((s) => s.textContent);
-  check('visitor lands on the Home feed without signing in', cards > 0, `${cards} room cards`);
-  check('design chrome is present',
-    nav.join('/') === 'হোম/ডিসকভার/মেসেজ/ওয়ালেট/প্রোফাইল' && tabs.length >= 3,
-    `${tabs.join(' · ')} | ${nav.join(' · ')}`);
-} else {
-  const auth = $('#authScreen');
-  check('sign-in screen is shown', !!auth && !auth.hidden);
-  if (auth) {
-    const fields = [...auth.querySelectorAll('.field label')].map((l) => l.textContent);
-    check('sign-in form is usable', fields.includes('ইউজারনেম') && fields.includes('পাসওয়ার্ড'), fields.join(' · '));
-  }
+const auth = $('#authScreen');
+check('visitor lands on the real sign-in screen', !!auth && !auth.hidden);
+if (auth) {
+  const fields = [...auth.querySelectorAll('.field label')].map((l) => l.textContent);
+  check('sign-in form is usable', fields.includes('ইউজারনেম') && fields.includes('পাসওয়ার্ড'), fields.join(' · '));
 }
+
+check('no silent demo session was created', window.localStorage.getItem('panda.token') === null,
+  window.localStorage.getItem('panda.token') === null ? 'no token stored' : 'token stored!');
+
+check('no offline error screen on a healthy server', !$('#offlineScreen'));
+
+// product data exists even on a brand-new database — the gift wall is not
+// seed data
+const gifts = (await (await fetch(BASE + '/api/gifts')).json()).gifts || [];
+check('gift catalog is present on a fresh database', gifts.length >= 14, `${gifts.length} gifts`);
 
 // no runtime errors during boot
 const fatal = [];

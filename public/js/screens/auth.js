@@ -3,7 +3,6 @@
 import { $, $$, el, toast, svg, ICON, haptic } from '../util.js';
 import { t } from '../i18n.js';
 import { api, session } from '../api.js';
-import { isLocal } from '../runtime.js';
 
 const field = (label, wrap) => el('div', { class: 'field' },
   el('label', { text: label }),

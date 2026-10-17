@@ -1,10 +1,11 @@
 'use strict';
 
 /**
- * Seed — creates the Panda Voice demo cast, gift catalog and a set of live
- * rooms so the Home grid is never empty on a fresh deployment.
+ * DEV FIXTURE ONLY — never run automatically at boot.
+ * Creates a cast of test users and rooms for local development:
  *   node server/seed.js          (skips if data already exists)
- *   server/seed.js --force  (wipes rooms/moments and re-seeds)
+ *   node server/seed.js --force  (wipes rooms/moments and re-seeds)
+ * Real deployments start empty and fill up with real sign-ups.
  */
 
 const bcrypt = require('bcryptjs');
@@ -39,23 +40,8 @@ const PEOPLE = [
   ['chen',     'Chen Yu',       'male',   'CN', 1,  0, 0],
 ];
 
-/** [id, name, emoji, price, anim, sort] — the Panda Voice gift wall. */
-const GIFTS = [
-  ['heart',     'Heart',        '❤️', 10,   'float', 1],
-  ['rose',      'Rose',         '🌹', 20,   'float', 2],
-  ['flower',    'Flower',       '🌸', 50,   'float', 3],
-  ['star',      'Star',         '⭐', 88,   'float', 4],
-  ['love',      'Love',         '😍', 120,  'float', 5],
-  ['coffee',    'Coffee',       '☕', 180,  'float', 6],
-  ['teddy',     'Teddy Bear',   '🧸', 299,  'float', 7],
-  ['cake',      'Birthday Cake','🎂', 520,  'float', 8],
-  ['lion',      'Lion',         '🦁', 888,  'launch',9],
-  ['crown',     'Golden Crown', '👑', 1888, 'shine', 10],
-  ['car',       'Super Car',    '🏎️', 3888, 'launch',11],
-  ['castle',    'Dream Castle', '🏰', 8888, 'shine', 12],
-  ['dragon',    'Dragon',       '🐉', 18888,'epic',  13],
-  ['galaxy',    'Galaxy',       '🌌', 32888,'epic',  14],
-];
+/* The gift wall is product data shared with config.js — db.js bootstraps it. */
+const GIFTS = config.GIFTS;
 
 /** [title, category, topic, theme, tags] */
 const ROOMS = [

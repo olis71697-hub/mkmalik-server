@@ -18,6 +18,7 @@ const auth = require('./auth');
 const state = require('./state');
 const dm = require('./dm');
 const realtime = require('./realtime');
+const push = require('./push');
 const {
   uid, shortCode, limiter, badRequest, notFound, forbidden, unauthorized,
   cleanText, assertUsername, assertPassword, safeJson, svgAvatar, pick,
@@ -213,37 +214,6 @@ router.post('/auth/login', wrap((req, res) => {
   }
   run('UPDATE users SET last_seen_at = ? WHERE id = ?', Date.now(), row.id);
   res.json({ token: auth.sign(row), user: publicProfile(row, row.id) });
-}));
-
-router.post('/auth/guest', wrap((_req, res) => {
-  const demo = get('SELECT * FROM users WHERE username = ?', 'panda');
-  if (!demo) throw notFound('Demo account not seeded');
-  res.json({ token: auth.sign(demo), user: publicProfile(demo, demo.id) });
-}));
-
-/**
- * Instant demo session.
- *
- * The showcase account is seeded on first boot; if it is missing (or was
- * deleted) this recreates it so a fresh deployment always has a way in.
- * Gated by DEMO_AUTO_LOGIN on the client — see config.demoAutoLogin.
- */
-router.post('/auth/demo', wrap((_req, res) => {
-  if (!config.demoAutoLogin) {
-    throw forbidden('Demo auto-login is disabled on this deployment — sign in with an account');
-  }
-  let demo = get('SELECT * FROM users WHERE username = ?', 'panda');
-  if (!demo) {
-    const id = uid();
-    run(`INSERT INTO users (id, username, display_name, password_hash, avatar, bio, level, xp,
-                            coins, diamonds, vip, role, is_bot, user_code, created_at, last_seen_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      id, 'panda', 'Panda Host', bcrypt.hashSync('demo1234', 10), svgAvatar('Panda Host', 'panda'),
-      'প্রতি রাতে লাইভ রুম হোস্ট করি 🐼🎙️', 42, 5000, 2000, 500, 1, 'admin', 1, assignUserCode(), Date.now(), Date.now());
-    demo = get('SELECT * FROM users WHERE id = ?', id);
-  }
-  run('UPDATE users SET last_seen_at = ? WHERE id = ?', Date.now(), demo.id);
-  res.json({ token: auth.sign(demo), user: publicProfile(demo, demo.id), demo: true });
 }));
 
 // ===========================================================================
@@ -514,6 +484,50 @@ router.get('/me/settings', auth.requireAuth, wrap((req, res) => {
   res.json({ settings: getSettings(req.user.id) });
 }));
 
+// ===========================================================================
+// WEB PUSH — real VAPID notifications (Android/desktop, work when closed)
+// ===========================================================================
+
+/** Public VAPID key — the browser needs it to create a subscription. */
+router.get('/push/key', wrap((_req, res) => {
+  res.json({ publicKey: push.publicKey() });
+}));
+
+/** Which of this user's browsers are registered. */
+router.get('/push/status', auth.requireAuth, wrap((req, res) => {
+  res.json(push.status(req.user.id));
+}));
+
+/** Register this browser (the client sends the PushSubscription object). */
+router.post('/push/subscribe', auth.requireAuth, wrap((req, res) => {
+  push.subscribe(req.user.id, req.body);
+  res.json({ ok: true, ...push.status(req.user.id) });
+}));
+
+/** Unregister one browser. */
+router.post('/push/unsubscribe', auth.requireAuth, wrap((req, res) => {
+  push.unsubscribe(req.user.id, req.body?.endpoint);
+  res.json({ ok: true, ...push.status(req.user.id) });
+}));
+
+/** Send a real test push to this user's browsers. */
+router.post('/push/test', auth.requireAuth, wrap(async (req, res) => {
+  const r = await push.sendToUser(req.user.id, {
+    kind: 'test', title: 'Panda Voice 🐼',
+    body: 'পুশ নোটিফিকেশন চালু আছে ✓', tag: 'panda-test', url: './',
+  });
+  res.json({
+    ok: r.sent > 0, sent: r.sent, skipped: r.skipped || null,
+    error: r.sent ? null : (r.skipped === 'settings'
+      ? 'সেটিংসে এই নোটিফিকেশন বন্ধ আছে'
+      : r.skipped === 'online'
+        ? 'আপনি এখন অনলাইন — পুশ শুধু দূরে থাকলে যায়'
+        : r.skipped === 'no_subscription'
+          ? 'কোনো ব্রাউজার রেজিস্টার করা নেই'
+          : 'push সার্ভিসে পৌঁছানো যায়নি — সার্ভার থেকে push service reachable হতে হবে'),
+  });
+}));
+
 router.put('/me/settings', auth.requireAuth, wrap((req, res) => {
   const p = req.body || {};
   const s = getSettings(req.user.id);
@@ -758,6 +772,11 @@ router.post('/users/:id/follow', auth.requireAuth, wrap((req, res) => {
   if (settings.notify_follow) {
     const io = req.app.get('io');
     if (io) io.to(`user:${target.id}`).emit('notification', n);
+    // real Android/desktop push when they are away
+    push.sendToUser(target.id, {
+      kind: 'follow', title: 'New follower 🐼',
+      body: `${req.user.display_name} এখন আপনাকে ফলো করছে`, tag: 'follow', url: './',
+    }).catch(() => {});
   }
   res.json({ following: true, notification: n });
 }));
@@ -1101,12 +1120,12 @@ router.get('/health', wrap((_req, res) => {
     node: process.version,
     memoryMb: Math.round(process.memoryUsage().rss / 1048576),
     startedAt: process.__startedAt || null,
-    demoAutoLogin: config.demoAutoLogin,
     features: {
       sms: !!config.otp.smsApiUrl,
       google: !!config.googleClientId,
       payments: config.payments.mode,
       turn: !!config.webrtc.turnUrl,
+      push: push.configured(),
     },
   });
 }));

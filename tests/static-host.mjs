@@ -162,31 +162,23 @@ try {
     if (!res.ok) r.check(`shell file ${f}`, false, `HTTP ${res.status}`);
   }
 
-  // ── 7. no backend → the app must fall back to local mode ─────────────────
-  r.section('graceful fallback with no backend');
+  // ── 7. no backend → the app says so honestly; no mock engine ships ───────
+  r.section('behaviour with no backend');
   const health = await get(ROOT + 'api/health');
   r.check('/api/health is not a JSON 200 on a static host',
     !(health.ok && (health.headers.get('content-type') || '').includes('json')),
     `HTTP ${health.status} ${health.headers.get('content-type')}`);
 
   const appSrc = await (await get(ROOT + 'js/app.js')).text();
-  r.check('app.js probes for a backend before signing in', /detectMode\(\)/.test(appSrc));
-  r.check('app.js switches to the local engine', /isLocal\(\)/.test(appSrc) && /LocalSocket/.test(appSrc));
-  // socket.io's client script is not published to a static host, so it must
-  // only be requested after the backend check has passed.
-  const connectFn = appSrc.slice(appSrc.indexOf('async function connectSocket'));
-  const localBranch = connectFn.indexOf('if (isLocal())');
-  const loadIo = connectFn.indexOf('loadSocketIo()');
-  r.check('app.js only loads socket.io when a backend exists',
-    localBranch > -1 && loadIo > localBranch && connectFn.slice(localBranch, loadIo).includes('return'),
-    `local branch at ${localBranch}, socket.io load at ${loadIo}`);
+  r.check('app.js probes for a backend before anything else', /await detectMode\(\)/.test(appSrc));
+  r.check('no in-browser mock engine ships',
+    !/LocalSocket|localApi|isLocal\(\)/.test(appSrc) && (await get(ROOT + 'js/local.js')).status === 404,
+    'local.js removed');
+  r.check('app.js shows an honest offline screen when no backend exists', /showOffline/.test(appSrc));
+  r.check('socket.io is only loaded on the backend-verified path',
+    /async function connectSocket[\s\S]*?loadSocketIo\(\)/.test(appSrc) && !/LocalSocket/.test(appSrc));
+  r.check('no demo auto-login path exists in the client', !/auth\/demo|api\.demo/.test(appSrc));
 
-  const localSrc = await (await get(ROOT + 'js/local.js')).text();
-  r.check('the local engine seeds rooms', /ROOM_SEED/.test(localSrc) && /buildSeed/.test(localSrc));
-  r.check('the local engine keeps state on the device', /localStorage/.test(localSrc));
-  r.check('the local engine mirrors between tabs', /BroadcastChannel/.test(localSrc));
-  r.check('the local engine answers seat:take', /case 'seat:take'/.test(localSrc));
-  r.check('the local engine caps rooms at 10 seats', /seats.findIndex\(\(s\) => !s\)/.test(localSrc));
   // ── 8. everything the app needs is actually committed ────────────────────
   // A .gitignore rule once swallowed the icons, so the app was "installable"
   // locally and broken on every real host. Catch that here, not in production.

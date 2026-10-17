@@ -7,7 +7,7 @@
    keep the icons fast.
    --------------------------------------------------------------------------- */
 
-const VERSION = 'panda-v1';
+const VERSION = 'panda-v2';
 const SHELL = `${VERSION}-shell`;
 const ASSETS = `${VERSION}-assets`;
 
@@ -102,4 +102,33 @@ self.addEventListener('fetch', (event) => {
 // Let the page tell the worker to take over immediately after an update.
 self.addEventListener('message', (event) => {
   if (event.data === 'SKIP_WAITING') self.skipWaiting();
+});
+
+
+// ── Web Push (VAPID) ───────────────────────────────────────────────────────
+// The server sends { title, body, tag, url }; show it even with no page open.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (_) { data = {}; }
+  const title = data.title || 'Panda Voice 🐼';
+  event.waitUntil(self.registration.showNotification(title, {
+    body: data.body || '',
+    tag: data.tag || 'panda-voice',
+    icon: 'icons/icon-192.png',
+    badge: 'icons/icon-64.png',
+    vibrate: [80, 40, 80],
+    data: { url: data.url || './' },
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || './';
+  event.waitUntil((async () => {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of clients) {
+      if ('focus' in client) { client.navigate?.(url).catch(() => {}); return client.focus(); }
+    }
+    return self.clients.openWindow(url);
+  })());
 });

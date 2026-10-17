@@ -118,8 +118,10 @@ window.localStorage.clear();
 await import(path.join(ROOT, 'js/app.js'));
 await new Promise((r) => setTimeout(r, 1500));
 
-const cards = window.document.querySelectorAll('#homeFeed .card').length;
-check('app still boots and renders with PWA wiring', cards > 0, `${cards} room cards`);
+const bootOk = window.document.querySelector('#boot')?.style.display === 'none';
+const landed = !window.document.querySelector('#authScreen')?.hidden
+  || !window.document.querySelector('#onboarding')?.hidden;
+check('app still boots and renders with PWA wiring', bootOk && landed, landed ? 'sign-in flow reached' : 'nothing visible');
 check('install bar exists in the DOM', !!window.document.querySelector('#installBar'));
 
 console.log(`\n════ RESULT: ${pass} passed, ${fail} failed ════\n`);

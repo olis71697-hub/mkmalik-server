@@ -522,6 +522,60 @@ openPage.settings = (App) => {
       el('span', { class: 'li-body' }, el('span', { class: 'li-t', text: title }), sub ? el('span', { class: 'li-s', text: sub }) : null),
       el('span', { class: 'li-end', html: svg(ICON.chev) }));
 
+    // ---- real Web Push (VAPID): subscribe THIS browser through the Push API
+    const b64ToUint8 = (b64) => {
+      const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+      const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+      return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+    };
+    const pushRow = el('div', { class: 'list-row', style: { cursor: 'pointer' } });
+    const buildPushRow = async () => {
+      pushRow.innerHTML = '';
+      const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+      const title = el('span', { class: 'li-t', text: '📲 ' + (isBn() ? 'পুশ নোটিফিকেশন (Android/ডেস্কটপ)' : 'Push notifications (Android/desktop)') });
+      const sub = el('span', { class: 'li-s' });
+      const box = el('span', { class: 'switch' }, el('input', { type: 'checkbox' }), el('i'));
+      const cb = box.querySelector('input');
+      pushRow.append(el('span', { class: 'li-icon', html: svg(ICON.bell || ICON.info) }), el('span', { class: 'li-body' }, title, sub), box);
+
+      if (!supported) {
+        cb.disabled = true;
+        sub.textContent = isBn() ? 'এই ব্রাউজার সাপোর্ট করে না' : 'Not supported in this browser';
+        return;
+      }
+      let st = { enabled: false };
+      try { st = await api.pushStatus(); } catch (_) {}
+      cb.checked = !!st.enabled;
+      sub.textContent = st.enabled
+        ? (isBn() ? 'চালু — অ্যাপ বন্ধ থাকলেও নোটিফিকেশন আসবে' : 'On — notifications arrive even when closed')
+        : (isBn() ? 'বন্ধ' : 'Off');
+
+      cb.onchange = async () => {
+        try {
+          if (cb.checked) {
+            const perm = await Notification.requestPermission();
+            if (perm !== 'granted') { cb.checked = false; sub.textContent = isBn() ? 'অনুমতি দেওয়া হয়নি' : 'Permission denied'; return; }
+            const reg = await navigator.serviceWorker.ready;
+            const { publicKey } = await api.pushKey();
+            const subn = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToUint8(publicKey) });
+            await api.pushSubscribe(subn.toJSON());
+            toast(isBn() ? 'পুশ নোটিফিকেশন চালু ✓' : 'Push enabled ✓');
+          } else {
+            const reg = await navigator.serviceWorker.ready;
+            const existing = await reg.pushManager.getSubscription();
+            if (existing) { await api.pushUnsubscribe(existing.endpoint); await existing.unsubscribe(); }
+            toast(isBn() ? 'পুশ নোটিফিকেশন বন্ধ' : 'Push disabled');
+          }
+        } catch (e) {
+          cb.checked = !cb.checked;
+          sub.textContent = e.message || t('error');
+          return;
+        }
+        buildPushRow();
+      };
+    };
+    buildPushRow();
+
     // language + theme
     const langSeg = el('div', { class: 'seg', style: { maxWidth: '240px', margin: '4px 0 14px' } });
     [['bn', '🇧🇩 বাংলা'], ['en', '🌐 English']].forEach(([id, label]) => {
@@ -555,6 +609,7 @@ openPage.settings = (App) => {
       themeSeg,
       el('div', { class: 'section-head' }, el('h2', { text: '🔔 ' + t('notifications') })),
       el('div', { class: 'list-card' },
+        pushRow,
         toggle(t('notifyMessages'), 'notify_message'),
         toggle(t('notifyGifts'), 'notify_gift'),
         toggle(t('notifyFollows'), 'notify_follow')),

@@ -21,7 +21,7 @@ const db = require('./db');
 const { router: apiRouter } = require('./api');
 const realtime = require('./realtime');
 const state = require('./state');
-const seed = require('./seed');
+const push = require('./push');
 
 process.__startedAt = new Date().toISOString();
 
@@ -29,17 +29,12 @@ const app = express();
 const server = http.createServer(app);
 
 // ---------------------------------------------------------------------------
-// First boot: make sure the instance is never an empty shell.
+// Boot: prepare the Web Push keypair (generated once, stored in data/).
+// The database starts EMPTY — no demo users, no fake rooms; real accounts are
+// created through the sign-up flow. (A dev fixture is available via
+// `npm run seed` if test data is ever wanted on purpose.)
 // ---------------------------------------------------------------------------
-try {
-  const users = db.get('SELECT COUNT(*) c FROM users').c;
-  if (users === 0) {
-    console.log('[boot] empty database detected — running initial seed');
-    seed();
-  }
-} catch (e) {
-  console.error('[boot] seed failed:', e.message);
-}
+try { push.init(); } catch (e) { console.error('[boot] push init failed:', e.message); }
 
 // ---------------------------------------------------------------------------
 // Middleware

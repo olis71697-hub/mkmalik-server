@@ -280,7 +280,28 @@ CREATE TABLE IF NOT EXISTS otp_codes (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_otp ON otp_codes(phone, created_at DESC);
+
+-- Web Push (VAPID) subscriptions for Android / desktop notifications
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint   TEXT NOT NULL UNIQUE,
+  p256dh     TEXT NOT NULL,
+  auth       TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
 `);
+
+// ---------------------------------------------------------------------------
+// The gift catalog is product data, not seed data — a fresh database always
+// has the full gift wall, with or without `npm run seed`.
+// ---------------------------------------------------------------------------
+try {
+  const { GIFTS } = require('./config');
+  const insGift = db.prepare('INSERT OR IGNORE INTO gift_catalog (id, name, emoji, price, anim, sort) VALUES (?,?,?,?,?,?)');
+  for (const g of GIFTS) insGift.run(...g);
+} catch (e) { console.error('[db] gift catalog bootstrap failed:', e.message); }
 
 // ---------------------------------------------------------------------------
 // Migrations for databases created by the previous ("mkmalik") schema

@@ -854,3 +854,31 @@ textarea.input { resize: none; min-height: 84px; padding-left: 14px; }
   .seats { grid-template-columns: repeat(4, 1fr); gap: 9px 6px; }
   .gift-grid { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* ── offline screen — no backend, no fake data ─────────────────────────── */
+.offline-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg-0, #0a0f0d);
+}
+.offline-card {
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  padding: 36px 26px;
+  border-radius: 22px;
+  background: var(--bg-1, #101815);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+.offline-card .offline-emoji { font-size: 52px; margin-bottom: 10px; }
+.offline-card h2 { margin: 0 0 10px; font-size: 20px; }
+.offline-card p { margin: 0 0 20px; color: var(--mut, #8aa396); font-size: 14px; line-height: 1.6; }
+[data-theme="light"] .offline-screen { background: #f4f8f5; }
+[data-theme="light"] .offline-card { background: #fff; border-color: rgba(0, 0, 0, 0.08); box-shadow: 0 18px 44px rgba(16, 32, 24, 0.12); }
+[data-theme="light"] .offline-card p { color: #5b6f65; }

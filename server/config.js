@@ -123,11 +123,6 @@ const config = {
   corsOrigins: (process.env.CORS_ORIGINS || '*').split(',').map((s) => s.trim()).filter(Boolean),
   trustProxy: bool(process.env.TRUST_PROXY, true),
 
-  // When on, a visitor with no saved session is dropped straight into the demo
-  // account instead of the sign-in screen — so the app is immediately usable
-  // for evaluation. Turn off for a real public deployment.
-  demoAutoLogin: bool(process.env.DEMO_AUTO_LOGIN, process.env.NODE_ENV !== 'production'),
-
   // WebRTC — STUN is always on; TURN relays media when both peers sit behind
   // symmetric NATs. Point these at your own coturn / hosted TURN to make voice
   // work reliably across mobile networks.
@@ -143,5 +138,26 @@ const config = {
 };
 
 config.isProd = config.env === 'production';
+
+/**
+ * [id, name, emoji, price, anim, sort] — the Panda Voice gift wall.
+ * Product data, not seed data: every fresh database bootstraps this catalog.
+ */
+config.GIFTS = [
+  ['heart',     'Heart',         '❤️', 10,   'float', 1],
+  ['rose',      'Rose',          '🌹', 20,   'float', 2],
+  ['flower',    'Flower',        '🌸', 50,   'float', 3],
+  ['star',      'Star',          '⭐', 88,   'float', 4],
+  ['love',      'Love',          '😍', 120,  'float', 5],
+  ['coffee',    'Coffee',        '☕', 180,  'float', 6],
+  ['teddy',     'Teddy Bear',    '🧸', 299,  'float', 7],
+  ['cake',      'Birthday Cake', '🎂', 520,  'float', 8],
+  ['lion',      'Lion',          '🦁', 888,  'launch', 9],
+  ['crown',     'Golden Crown',  '👑', 1888, 'shine', 10],
+  ['car',       'Super Car',     '🏎️', 3888, 'launch', 11],
+  ['castle',    'Dream Castle',  '🏰', 8888, 'shine', 12],
+  ['dragon',    'Dragon',        '🐉', 18888, 'epic', 13],
+  ['galaxy',    'Galaxy',        '🌌', 32888, 'epic', 14],
+];
 
 module.exports = config;

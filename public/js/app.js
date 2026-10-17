@@ -3,8 +3,7 @@
 import { $, $$, el, toast, bus, haptic, avatarImg, svg, ICON } from './util.js';
 import { t, setLang, lang, onLangChange } from './i18n.js';
 import { api, session, ApiError } from './api.js';
-import { detectMode, isLocal, isServer, getBackend, rel } from './runtime.js';
-import { LocalSocket, startSimulation, resetLocal } from './local.js';
+import { detectMode, isServer, getBackend, rel } from './runtime.js';
 import { mountAuth, mountOnboarding } from './screens/auth.js';
 import { mountHome } from './screens/home.js';
 import { mountDiscover } from './screens/discover.js';
@@ -20,7 +19,7 @@ export const App = {
   online: true,
   events: bus(),
   current: 'home',
-  mode: 'server',        // 'server' = real backend, 'local' = in-browser engine
+  mode: 'server',        // the app only ever runs against the real backend
   wallet: { coins: 0, diamonds: 0 },
   settings: { language: 'bn', theme: 'dark' },
   socketReady: false,
@@ -82,15 +81,6 @@ function loadSocketIo() {
 
 async function connectSocket() {
   if (App.socket) { try { App.socket.disconnect(); } catch (_) {} App.socket = null; }
-
-  // No backend: drive the UI from the in-browser engine instead.
-  if (isLocal()) {
-    App.socket = new LocalSocket();
-    App.socketReady = true;
-    startSimulation(App.socket);
-    App.events.emit('socket', { connected: true });
-    return App.socket;
-  }
 
   const loaded = await loadSocketIo();
   if (!loaded) {
@@ -230,28 +220,24 @@ export async function signOut() {
   App.socket = null;
   App.user = null;
   session.clear();
-  if (isLocal()) resetLocal();
   toast(t('logout') + ' ✓');
   showAuth();
 }
 
-// ── local (static-host) mode banner ───────────────────────────────────────
-function showLocalBanner() {
-  try {
-    if (localStorage.getItem('panda.local.banner') === 'off') return;
-  } catch (_) {}
-
-  const bar = el('div', { class: 'mode-banner', role: 'status' });
-  bar.innerHTML =
-    '<span class="mode-dot"></span>' +
-    '<span class="mode-text"><b>ডেমো মোড</b> — কোনো সার্ভার নেই, তাই রুমগুলো এই ডিভাইসেই সিমুলেট হচ্ছে। ' +
-    'আসল লাইভ ভয়েসের জন্য hosted সার্ভার ভার্সন খুলুন।</span>' +
-    '<button class="mode-close" type="button" aria-label="Dismiss">×</button>';
-  bar.querySelector('.mode-close').onclick = () => {
-    bar.remove();
-    try { localStorage.setItem('panda.local.banner', 'off'); } catch (_) {}
-  };
-  document.body.append(bar);
+// ── no backend reachable → say so honestly, never fake a working app ──────
+function showOffline() {
+  let layer = $('#offlineScreen');
+  if (layer) { layer.hidden = false; return; }
+  layer = el('div', { id: 'offlineScreen', class: 'offline-screen', role: 'alert' },
+    el('div', { class: 'offline-card' },
+      el('div', { class: 'offline-emoji', text: '📡' }),
+      el('h2', { text: 'সার্ভারে পৌঁছানো যাচ্ছে না' }),
+      el('p', { text: 'Panda Voice চলে একটি আসল সার্ভার থেকে — নকল ডেটা দেখানো হয় না। ইন্টারনেট সংযোগ দেখে আবার চেষ্টা করুন।' }),
+      el('button', {
+        class: 'btn btn--primary', text: '🔄 আবার চেষ্টা করুন',
+        onclick: () => location.reload(),
+      })));
+  document.body.append(layer);
 }
 
 // ── install prompt ─────────────────────────────────────────────────────────
@@ -336,10 +322,16 @@ async function boot() {
   refreshStaticText();
 
   await detectMode();
-  if (isLocal()) showLocalBanner();
+
+  // No backend anywhere → an honest error, never a fake app.
+  if (!isServer()) {
+    hideBoot();
+    showOffline();
+    return;
+  }
 
   // a saved session?
-  if (session.token && session.token !== 'local-demo' && isServer()) {
+  if (session.token) {
     try {
       const me = await api.me();
       App.unread = { notifications: 0, messages: 0 };
@@ -350,25 +342,6 @@ async function boot() {
       if (e instanceof ApiError && e.status === 401) session.clear();
       else if (e.status === 0) { /* server temporarily unreachable — fall through to auth */ }
     }
-  } else if (isLocal()) {
-    // demo mode: straight in, so a static visitor always sees a working app
-    try {
-      const demo = await api.demo();
-      await onSignedIn({ user: demo.user, token: demo.token, wallet: { coins: demo.user.coins, diamonds: demo.user.diamonds }, settings: { language: lang(), theme: 'dark' } });
-      hideBoot();
-      return;
-    } catch (_) {}
-  } else {
-    // server mode, no session: try the auto demo session when the deployment allows it
-    try {
-      const health = await api.health();
-      if (health.demoAutoLogin) {
-        const demo = await api.demo();
-        await onSignedIn({ user: demo.user, token: demo.token, wallet: { coins: demo.user.coins, diamonds: demo.user.diamonds }, settings: { language: lang(), theme: 'dark' } });
-        hideBoot();
-        return;
-      }
-    } catch (_) {}
   }
 
   hideBoot();

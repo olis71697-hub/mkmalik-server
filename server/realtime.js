@@ -15,6 +15,7 @@ const state = require('./state');
 const { all, get, run, now } = require('./db');
 const { uid, limiter, badRequest, forbidden, notFound, cleanText } = require('./util');
 const { userFromToken } = require('./auth');
+const push = require('./push');
 
 /** Lazy require — api.js also requires this module, so a top-level require
  *  would create a cycle and hand back a half-built module. */
@@ -528,6 +529,10 @@ function mount(io) {
           meta: { giftId: gift.id, qty, coins: cost, to: target.userId }, createdAt: t,
         });
         emitUser(target.userId, 'notification', { kind: 'gift', title: 'You received a gift!', body: `${sender.display_name} sent ${gift.emoji} ${gift.name} ×${qty}` });
+        push.sendToUser(target.userId, {
+          kind: 'gift', title: 'You received a gift! 🎁',
+          body: `${sender.display_name} sent ${gift.emoji} ${gift.name} ×${qty}`, tag: 'gift', url: './',
+        }).catch(() => {});
         broadcastState(room);
 
         ack?.({ ok: true, coins: sender.coins - cost, event });
@@ -587,6 +592,10 @@ function mount(io) {
         const sender = me();
         const msg = require('./dm').sendDirect(sender, to, body);
         emitUser(to.id, 'dm:new', { message: msg, from: state.publicUser(sender) });
+        push.sendToUser(to.id, {
+          kind: 'dm', title: sender.display_name,
+          body: body.slice(0, 90), tag: 'dm-' + sender.id, url: './',
+        }).catch(() => {});
         ack?.({ ok: true, message: msg });
       } catch (e) { ack?.({ ok: false, error: e.message, code: e.code }); }
     });
@@ -644,38 +653,7 @@ function mount(io) {
     io.emit('server:stats', st);
   }, 15_000).unref();
 
-  // ---- room ambience --------------------------------------------------------
-  // Official rooms keep a light chatter going so they never look abandoned.
-  const AMBIENT_LINES = [
-    'সবাইকে স্বাগতম 🎉',
-    'মাইক খোলা আছে — কিছু বলুন 😄',
-    'গানটা তো আগুন 🔥',
-    'আড্ডা দেব, কে কে আছো? 🐼',
-    'হোস্টকে ফলো করে রাখুন, দারুণ মজার',
-    'গিফট পাঠানোর অপেক্ষায় 🎁',
-    'কী সুন্দর গলা! 👏',
-    'কেউ কলকাতা থেকে আছেন? ✨',
-    'সবাই মিলে ভালো লাগছে 🎧',
-    'মাইক চাইলে হাত তুলুন ✋',
-  ];
-  setInterval(() => {
-    for (const room of state.liveRooms()) {
-      if (!state.isOfficialRoom(room)) continue;
-      // only speak up when a real human is listening
-      const humans = [...room.members.values()].filter((m) => connected.has(m.userId));
-      if (!humans.length) continue;
-
-      const bots = [...room.members.values()].filter((m) => m.user?.is_bot && m.seat !== null);
-      if (!bots.length) continue;
-      const bot = bots[Math.floor(Math.random() * bots.length)];
-
-      pushMessage(room, {
-        id: uid(), kind: 'text',
-        body: AMBIENT_LINES[Math.floor(Math.random() * AMBIENT_LINES.length)],
-        userId: bot.userId, user: state.publicUser(bot.user), meta: {}, createdAt: Date.now(),
-      });
-    }
-  }, 22_000).unref();
+  // (No fake ambience — rooms are quiet until real people speak in them.)
 
   return io;
 }

@@ -1,11 +1,11 @@
 /* REST client + session storage.
  *
- * Talks to the Node backend when one is reachable; otherwise it falls back to
- * the in-browser engine in local.js, so the same screens work either way.
+ * Every call goes to the real Node backend (same origin, or a discovered
+ * backend origin). There is no offline mock: if the server is unreachable the
+ * app shows an error screen instead of pretending to work.
  */
 
-import { apiBase, isLocal } from './runtime.js';
-import { localApi } from './local.js';
+import { apiBase } from './runtime.js';
 
 const TOKEN_KEY = 'panda.token';
 const USER_KEY = 'panda.user';
@@ -70,6 +70,7 @@ const get   = (p)    => request('GET', p);
 const post  = (p, b) => request('POST', p, b);
 const patch = (p, b) => request('PATCH', p, b);
 const put   = (p, b) => request('PUT', p, b);
+const del   = (p, b) => request('DELETE', p, b);
 
 /** query string that skips undefined/null/empty values */
 function qs(params = {}) {
@@ -79,103 +80,89 @@ function qs(params = {}) {
   }
   return sp.toString();
 }
-const del   = (p, b) => request('DELETE', p, b);
-
-/** Route to the local engine when there is no backend behind us. */
-const local = (name, ...args) => {
-  const fn = localApi[name];
-  if (!fn) throw new ApiError(`local mode does not implement ${name}`, 'not_implemented', 501);
-  return fn.apply(localApi, args);
-};
 
 export const api = {
   // ---- auth (username / password) ----
   register: (username, password, displayName, accepted) =>
-    isLocal() ? local('demo') : post('/auth/register', { username, password, displayName, accepted }),
-  login: (username, password) =>
-    isLocal() ? local('demo') : post('/auth/login', { username, password }),
-  demo: () => (isLocal() ? local('demo') : post('/auth/demo')),
+    post('/auth/register', { username, password, displayName, accepted }),
+  login: (username, password) => post('/auth/login', { username, password }),
 
   // ---- auth (phone OTP) ----
-  otpRequest: (phone) =>
-    isLocal() ? local('otpRequest', phone) : post('/auth/otp/request', { phone }),
-  otpVerify: (phone, code, displayName) =>
-    isLocal() ? local('otpVerify', phone, code, displayName) : post('/auth/otp/verify', { phone, code, displayName }),
+  otpRequest: (phone) => post('/auth/otp/request', { phone }),
+  otpVerify: (phone, code, displayName) => post('/auth/otp/verify', { phone, code, displayName }),
 
   // ---- auth (Google) ----
-  google: (credential) =>
-    isLocal() ? local('demo') : post('/auth/google', { credential }),
+  google: (credential) => post('/auth/google', { credential }),
 
   // ---- auth (password reset) ----
-  forgot: (username) =>
-    isLocal() ? local('forgot', username) : post('/auth/forgot', { username }),
-  reset: (username, code, password) =>
-    isLocal() ? local('reset', username, code, password) : post('/auth/reset', { username, code, password }),
+  forgot: (username) => post('/auth/forgot', { username }),
+  reset: (username, code, password) => post('/auth/reset', { username, code, password }),
 
   // ---- me ----
-  me: () => (isLocal() ? local('me') : get('/me')),
-  updateMe: (patchBody) => (isLocal() ? local('updateMe', patchBody) : patch('/me', patchBody)),
+  me: () => get('/me'),
+  updateMe: (patchBody) => patch('/me', patchBody),
   uploadAvatar: (file) => {
-    if (isLocal()) return local('uploadAvatar', file);
     const fd = new FormData();
     fd.append('image', file);
     return request('POST', '/me/avatar', fd);
   },
-  dailyBonus: () => (isLocal() ? local('dailyBonus') : post('/me/daily-bonus')),
-  changePassword: (currentPassword, newPassword) =>
-    isLocal() ? local('changePassword', currentPassword, newPassword) : post('/me/password', { currentPassword, newPassword }),
-  deleteAccount: (body) => (isLocal() ? local('deleteAccount', body) : del('/me', body)),
+  dailyBonus: () => post('/me/daily-bonus'),
+  changePassword: (currentPassword, newPassword) => post('/me/password', { currentPassword, newPassword }),
+  deleteAccount: (body) => del('/me', body),
 
   // ---- settings ----
-  settings: () => (isLocal() ? local('settings') : get('/me/settings')),
-  saveSettings: (s) => (isLocal() ? local('saveSettings', s) : put('/me/settings', s)),
+  settings: () => get('/me/settings'),
+  saveSettings: (s) => put('/me/settings', s),
+
+  // ---- web push ----
+  pushKey: () => get('/push/key'),
+  pushStatus: () => get('/push/status'),
+  pushSubscribe: (subscription) => post('/push/subscribe', subscription),
+  pushUnsubscribe: (endpoint) => post('/push/unsubscribe', { endpoint }),
+  pushTest: () => post('/push/test'),
 
   // ---- blocks / reports ----
-  blocks: () => (isLocal() ? local('blocks') : get('/me/blocks')),
-  block: (id) => (isLocal() ? local('block', id) : post(`/users/${id}/block`)),
-  unblock: (id) => (isLocal() ? local('unblock', id) : del(`/users/${id}/block`)),
-  report: (body) => (isLocal() ? local('report', body) : post('/report', body)),
+  blocks: () => get('/me/blocks'),
+  block: (id) => post(`/users/${id}/block`),
+  unblock: (id) => del(`/users/${id}/block`),
+  report: (body) => post('/report', body),
 
   // ---- explore ----
-  rooms: (params = {}) =>
-    isLocal() ? local('rooms', params) : get('/rooms?' + qs(params)),
-  room: (id) => (isLocal() ? local('room', id) : get('/rooms/' + id)),
-  createRoom: (body) => (isLocal() ? local('createRoom', body) : post('/rooms', body)),
+  rooms: (params = {}) => get('/rooms?' + qs(params)),
+  room: (id) => get('/rooms/' + id),
+  createRoom: (body) => post('/rooms', body),
 
   // ---- people ----
-  search: (q) => (isLocal() ? local('search', q) : get('/search?q=' + encodeURIComponent(q))),
-  users: (sort = 'popular') => (isLocal() ? local('users', sort) : get('/users?sort=' + sort)),
-  user: (id) => (isLocal() ? local('user', id) : get('/users/' + id)),
-  follow: (id) => (isLocal() ? local('follow', id) : post(`/users/${id}/follow`)),
-  followers: (id) => (isLocal() ? local('followers', id) : get(`/users/${id}/followers`)),
-  following: (id) => (isLocal() ? local('following', id) : get(`/users/${id}/following`)),
-  userGifts: (id) => (isLocal() ? local('userGifts', id) : get(`/users/${id}/gifts`)),
+  search: (q) => get('/search?q=' + encodeURIComponent(q)),
+  users: (sort = 'popular') => get('/users?sort=' + sort),
+  user: (id) => get('/users/' + id),
+  follow: (id) => post(`/users/${id}/follow`),
+  followers: (id) => get(`/users/${id}/followers`),
+  following: (id) => get(`/users/${id}/following`),
+  userGifts: (id) => get(`/users/${id}/gifts`),
 
   // ---- economy ----
-  gifts: () => (isLocal() ? local('gifts') : get('/gifts')),
-  topup: (amount, tok) => (isLocal() ? local('topup') : post('/wallet/topup', { amount, token: tok })),
+  gifts: () => get('/gifts'),
+  topup: (amount, tok) => post('/wallet/topup', { amount, token: tok }),
 
   // ---- wallet ----
-  wallet: () => (isLocal() ? local('wallet') : get('/wallet')),
-  packages: () => (isLocal() ? local('packages') : get('/wallet/packages')),
+  wallet: () => get('/wallet'),
+  packages: () => get('/wallet/packages'),
   purchase: (packageId, paymentMethod, paymentRef) =>
-    isLocal() ? local('purchase', packageId, paymentMethod, paymentRef) : post('/wallet/purchase', { packageId, paymentMethod, paymentRef }),
+    post('/wallet/purchase', { packageId, paymentMethod, paymentRef }),
 
   // ---- moments (API kept) ----
-  moments: () => (isLocal() ? local('moments') : get('/moments')),
+  moments: () => get('/moments'),
 
   // ---- chat ----
-  conversations: () => (isLocal() ? local('conversations') : get('/chat/conversations')),
-  thread: (userId, before) =>
-    isLocal() ? local('thread', userId) : get(`/chat/${userId}/messages` + (before ? `?before=${before}` : '')),
-  sendDM: (userId, body) =>
-    isLocal() ? local('sendDM', userId, body) : post(`/chat/${userId}/messages`, { body }),
+  conversations: () => get('/chat/conversations'),
+  thread: (userId, before) => get(`/chat/${userId}/messages` + (before ? `?before=${before}` : '')),
+  sendDM: (userId, body) => post(`/chat/${userId}/messages`, { body }),
 
   // ---- misc ----
-  notifications: () => (isLocal() ? local('notifications') : get('/notifications')),
-  readNotifications: () => (isLocal() ? local('readNotifications') : post('/notifications/read')),
-  leaderboard: (period = 'day') =>
-    isLocal() ? local('leaderboard', period) : get('/leaderboard?period=' + period),
-  health: () => (isLocal() ? local('health') : get('/health')),
-  iceServers: () => (isLocal() ? local('iceServers') : get('/ice-servers')),
+  notifications: () => get('/notifications'),
+  readNotifications: () => post('/notifications/read'),
+  leaderboard: (period = 'day') => get('/leaderboard?period=' + period),
+  health: () => get('/health'),
+  iceServers: () => get('/ice-servers'),
 };
