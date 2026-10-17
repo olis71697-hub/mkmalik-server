@@ -101,6 +101,8 @@ check('the download page fires the native prompt when available', extraSrc.inclu
 check('the download page covers browsers without a prompt (manual steps)',
   extraSrc.includes('manualStepsTitle') && extraSrc.includes('Add to Home Screen'));
 check('already-installed users see a clear state', extraSrc.includes('alreadyInstalled') && extraSrc.includes('standalone'));
+check('the download page hands out the app link (copy + share)',
+  extraSrc.includes('appLink') && extraSrc.includes('clipboard') && extraSrc.includes('navigator.share'));
 check('app handles iOS (no install API)', appJs.includes('Add to Home Screen'));
 
 // ── a boot in a DOM still succeeds with the PWA wiring ─────────────────────

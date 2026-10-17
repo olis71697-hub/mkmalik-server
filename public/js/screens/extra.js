@@ -161,6 +161,37 @@ openPage.install = (App) => {
         el('div', { class: 'ih-name', text: 'Panda Voice 🐼' }),
         el('div', { class: 'ih-sub', text: isBn() ? 'রিয়েল-টাইম গ্রুপ ভয়েস রুম 🎙️' : 'Real-time group voice rooms 🎙️' })));
 
+      // ── the app link: copy / share it to your phone ──
+      if (!standalone) {
+        const url = location.origin + location.pathname;
+        const linkCard = el('div', { class: 'list-card', style: { padding: '12px 14px', display: 'flex', gap: '10px', alignItems: 'center' } },
+          el('div', { style: { flex: '1', minWidth: '0' } },
+            el('div', { style: { fontWeight: 800, fontSize: '13px' }, text: '🔗 ' + t('appLink') }),
+            el('div', { style: { fontSize: '11.5px', color: 'var(--text-dim)', wordBreak: 'break-all', marginTop: '2px' }, text: url }),
+            el('div', { style: { fontSize: '11px', color: 'var(--text-faint)', marginTop: '4px' }, text: t('appLinkNote') })),
+          el('button', {
+            class: 'btn btn--ghost', style: { flexShrink: '0', fontSize: '12px' }, text: '📋 ' + t('copy'),
+            onclick: async () => {
+              let ok = false;
+              try { await navigator.clipboard.writeText(url); ok = true; } catch (_) {
+                const ta = el('textarea', { value: url, style: { position: 'fixed', opacity: '0' } });
+                document.body.append(ta); ta.select();
+                try { ok = document.execCommand('copy'); } catch (_) {}
+                ta.remove();
+              }
+              toast(ok ? t('copied') : url, ok ? 'ok' : '');
+              haptic(8);
+            },
+          }));
+        if (navigator.share) {
+          linkCard.append(el('button', {
+            class: 'btn btn--ghost', style: { flexShrink: '0', fontSize: '12px' }, text: '📤 ' + t('share'),
+            onclick: () => { try { navigator.share({ title: 'Panda Voice 🐼', url }).catch(() => {}); } catch (_) {} },
+          }));
+        }
+        body.append(linkCard);
+      }
+
       const card = el('div', { class: 'list-card', style: { padding: '16px 14px' } });
 
       if (standalone) {
