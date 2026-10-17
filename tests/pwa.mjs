@@ -92,6 +92,15 @@ const appJs = fs.readFileSync(path.join(ROOT, 'js/app.js'), 'utf8');
 check('app registers the service worker',
   /serviceWorker\.register\(rel\('sw\.js'\)\)/.test(appJs), 'rel(\'sw.js\')');
 check('app handles beforeinstallprompt', appJs.includes('beforeinstallprompt'));
+// ── the in-app download page ───────────────────────────────────────────────
+check('app exposes the native install trigger', /export (async )?function triggerInstall/.test(appJs) && /export function installAvailable/.test(appJs));
+const extraSrc = fs.readFileSync(path.join(ROOT, 'js/screens/extra.js'), 'utf8');
+check('settings links to a download/install page',
+  /openPage\.install =/.test(extraSrc) && extraSrc.includes('downloadApp'));
+check('the download page fires the native prompt when available', extraSrc.includes('triggerInstall'));
+check('the download page covers browsers without a prompt (manual steps)',
+  extraSrc.includes('manualStepsTitle') && extraSrc.includes('Add to Home Screen'));
+check('already-installed users see a clear state', extraSrc.includes('alreadyInstalled') && extraSrc.includes('standalone'));
 check('app handles iOS (no install API)', appJs.includes('Add to Home Screen'));
 
 // ── a boot in a DOM still succeeds with the PWA wiring ─────────────────────

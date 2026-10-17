@@ -242,19 +242,36 @@ function showOffline() {
 
 // ── install prompt ─────────────────────────────────────────────────────────
 let deferredInstall = null;
+
+/** Can the browser show its native install prompt right now? */
+export function installAvailable() { return !!deferredInstall; }
+
+/** Fire the native install prompt (Android / desktop Chromium). */
+export async function triggerInstall() {
+  if (!deferredInstall) return 'not-available';
+  deferredInstall.prompt();
+  const choice = await deferredInstall.userChoice.catch(() => null);
+  deferredInstall = null;
+  return choice?.outcome || 'dismissed';
+}
+
 function setupInstall() {
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredInstall = e;
     $('#installBar').hidden = false;
+    // the in-app download page should know the prompt became available
+    App.events.emit('install-available');
+  });
+  window.addEventListener('appinstalled', () => {
+    deferredInstall = null;
+    $('#installBar').hidden = true;
+    toast('Panda Voice ইনস্টল হয়ে গেছে 🎉', 'ok');
+    App.events.emit('install-available');
   });
   $('#installBtn')?.addEventListener('click', async () => {
     $('#installBar').hidden = true;
-    if (deferredInstall) {
-      deferredInstall.prompt();
-      await deferredInstall.userChoice;
-      deferredInstall = null;
-    }
+    await triggerInstall();
   });
   $('#installClose')?.addEventListener('click', () => { $('#installBar').hidden = true; });
 

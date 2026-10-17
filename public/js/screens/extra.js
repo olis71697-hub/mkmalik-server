@@ -5,6 +5,7 @@
 import { $, $$, el, toast, svg, ICON, compact, ago, clockLabel, avatarImg, confirmBox, haptic, categoryEmoji, CATEGORIES, roomCover } from '../util.js';
 import { t, isBn, agoLabel, setLang, lang, onLangChange } from '../i18n.js';
 import { api, session } from '../api.js';
+import { rel } from '../runtime.js';
 
 /* ═══════════════ page stack ═══════════════ */
 const layer = () => document.getElementById('pageLayer');
@@ -139,6 +140,101 @@ openPage.leaderboard = (App) => {
     body.append(seg, lists);
     renderSeg();
     load();
+  });
+};
+
+/* ═══════════════ download / install the app ═══════════════ */
+openPage.install = (App) => {
+  pushPage('📱 ' + t('downloadApp'), async (body, page) => {
+    let appmod = null;
+    try { appmod = await import('../app.js'); } catch (_) { /* page still works */ }
+    const standalone = !!(window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone);
+    const ua = navigator.userAgent || '';
+    const isIOS = /iphone|ipad|ipod/i.test(ua);
+    const isAndroid = /android/i.test(ua);
+    const isFirefoxDesktop = /firefox/i.test(ua) && !isAndroid;
+
+    function render() {
+      body.innerHTML = '';
+      body.append(el('div', { class: 'install-hero' },
+        el('img', { src: rel('icons/icon-192.png'), alt: 'Panda Voice' }),
+        el('div', { class: 'ih-name', text: 'Panda Voice 🐼' }),
+        el('div', { class: 'ih-sub', text: isBn() ? 'রিয়েল-টাইম গ্রুপ ভয়েস রুম 🎙️' : 'Real-time group voice rooms 🎙️' })));
+
+      const card = el('div', { class: 'list-card', style: { padding: '16px 14px' } });
+
+      if (standalone) {
+        card.append(
+          el('div', { class: 'install-done', text: '✓' }),
+          el('div', { style: { textAlign: 'center', fontWeight: 800, marginTop: '8px' }, text: t('alreadyInstalled') }),
+          el('div', { style: { textAlign: 'center', fontSize: '12px', color: 'var(--text-faint)', marginTop: '4px' }, text: t('alreadyInstalledNote') }));
+      } else if (appmod?.installAvailable?.()) {
+        const btn = el('button', { class: 'btn btn--primary btn--block', text: '⬇️ ' + t('installNow') });
+        btn.onclick = async () => {
+          btn.disabled = true;
+          btn.textContent = '⏳ ' + t('loading');
+          const outcome = await appmod.triggerInstall();
+          if (outcome === 'accepted') {
+            toast(t('installDone'), 'ok');
+            haptic(30);
+            render();
+          } else {
+            btn.disabled = false;
+            btn.textContent = '⬇️ ' + t('installNow');
+          }
+        };
+        card.append(btn,
+          el('div', { class: 'center-note', style: { marginTop: '10px', fontSize: '11.5px' }, text: t('installOneTap') }));
+      } else {
+        card.append(el('div', { style: { fontWeight: 800, marginBottom: '8px' }, text: t('manualStepsTitle') }));
+        const step = (n, txt) => el('div', { style: { display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '7px 0' } },
+          el('span', { style: {
+            minWidth: '22px', height: '22px', borderRadius: '50%', flexShrink: '0',
+            background: 'var(--brand-2, #22c55e)', color: '#04140c', fontWeight: 800,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px',
+          }, text: String(n) }),
+          el('span', { style: { fontSize: '13px', lineHeight: 1.55 }, text: txt }));
+        if (isIOS) {
+          card.append(
+            step(1, isBn() ? 'Safari-র নিচের Share (⬆️) বাটনে চাপুন' : "Tap Safari's Share button (⬆️)"),
+            step(2, isBn() ? 'লিস্ট থেকে "Add to Home Screen" বেছে নিন' : 'Choose "Add to Home Screen"'),
+            step(3, isBn() ? '"Add" চাপুন — হোম স্ক্রিনে 🐼 বসে যাবে' : 'Tap "Add" — the 🐼 lands on your home screen'));
+        } else if (isFirefoxDesktop) {
+          card.append(
+            step(1, isBn() ? 'অ্যাড্রেস বারের ⓘ আইকনে ক্লিক করুন' : 'Click the ⓘ icon next to the address bar'),
+            step(2, isBn() ? '"Install" বাটনে চাপুন' : 'Click the "Install" button'));
+        } else if (isAndroid) {
+          card.append(
+            step(1, isBn() ? 'Chrome-এর ডান-উপরের ⋮ মেনু খুলুন' : "Open Chrome's ⋮ menu (top right)"),
+            step(2, isBn() ? '"Install app" / "অ্যাপ ইনস্টল করুন"-এ চাপুন' : 'Tap "Install app"'),
+            step(3, isBn() ? 'প্রম্পট এলে "ইনস্টল" নিশ্চিত করুন' : 'Confirm "Install" when the prompt appears'));
+        } else {
+          card.append(
+            step(1, isBn() ? 'ব্রাউজারের ⋮ বা ☰ মেনু খুলুন' : "Open the browser's ⋮ or ☰ menu"),
+            step(2, isBn() ? '"Install app" / "Install Panda Voice"-এ চাপুন' : 'Tap "Install app" / "Install Panda Voice"'));
+        }
+      }
+      body.append(card);
+
+      body.append(el('div', { class: 'section-head' }, el('h2', { text: '✨ ' + t('installBenefits') })));
+      const bcard = el('div', { class: 'list-card', style: { padding: '6px 14px' } });
+      t('benefitList').split('·').map((s) => s.trim()).filter(Boolean).forEach((b) => {
+        bcard.append(el('div', { style: { display: 'flex', gap: '10px', alignItems: 'center', padding: '9px 0', fontSize: '13px' } },
+          el('span', { text: '✓', style: { color: 'var(--brand-2, #22c55e)', fontWeight: 800 } }),
+          el('span', { text: b })));
+      });
+      body.append(bcard);
+    }
+
+    render();
+
+    // Chrome can fire beforeinstallprompt while this page is open — re-render live
+    const off = App.events.on('install-available', () => render());
+    // and stop listening once the page is gone (back button or scrim)
+    const observer = new MutationObserver(() => {
+      if (!document.contains(page)) { off(); observer.disconnect(); }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
   });
 };
 
@@ -578,10 +674,18 @@ openPage.settings = (App) => {
         el('span', { class: 'switch' }, cb, el('i')));
     };
 
-    const row = (icon, title, sub, fn, danger = false) => el('button', { class: 'list-row' + (danger ? ' is-danger' : ''), onclick: fn },
-      el('span', { class: 'li-icon' + (danger ? ' is-danger' : ''), html: svg(icon) }),
-      el('span', { class: 'li-body' }, el('span', { class: 'li-t', text: title }), sub ? el('span', { class: 'li-s', text: sub }) : null),
-      el('span', { class: 'li-end', html: svg(ICON.chev) }));
+    // icon: an ICON.* key (svg path), ready svg markup, or a plain emoji
+    const row = (icon, title, sub, fn, danger = false) => {
+      const iconEl = el('span', { class: 'li-icon' + (danger ? ' is-danger' : '') });
+      const s = String(icon);
+      if (s.startsWith('<svg')) iconEl.innerHTML = s;
+      else if (/\p{Extended_Pictographic}/u.test(s)) iconEl.textContent = s;
+      else iconEl.innerHTML = svg(s);
+      return el('button', { class: 'list-row' + (danger ? ' is-danger' : ''), onclick: fn },
+        iconEl,
+        el('span', { class: 'li-body' }, el('span', { class: 'li-t', text: title }), sub ? el('span', { class: 'li-s', text: sub }) : null),
+        el('span', { class: 'li-end', html: svg(ICON.chev) }));
+    };
 
     // ---- real Web Push (VAPID): subscribe THIS browser through the Push API
     const b64ToUint8 = (b64) => {
@@ -674,6 +778,9 @@ openPage.settings = (App) => {
         toggle(t('notifyMessages'), 'notify_message'),
         toggle(t('notifyGifts'), 'notify_gift'),
         toggle(t('notifyFollows'), 'notify_follow')),
+      el('div', { class: 'section-head' }, el('h2', { text: '📱 ' + (isBn() ? 'অ্যাপ' : 'App') })),
+      el('div', { class: 'list-card' },
+        row('📱', t('downloadApp'), t('downloadAppNote'), () => openPage.install(App))),
       el('div', { class: 'section-head' }, el('h2', { text: '🛡 ' + t('privacy') + ' & ' + t('security') })),
       el('div', { class: 'list-card' },
         row(ICON.shield, t('privacy'), '', () => openPage.privacy(App, settings)),
