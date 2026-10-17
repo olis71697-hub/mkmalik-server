@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-apk:
@@ -44,10 +44,23 @@ jobs:
       - name: Verify APK was created
         run: test -s android/app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Upload APK for download
+      - name: Upload APK build artifact
         uses: actions/upload-artifact@v7
         with:
           name: Panda-Voice-Android-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish direct APK download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: panda-voice-android-v1.0.0
+        run: |
+          set -euo pipefail
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/Panda-Voice.apk"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/Panda-Voice.apk" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$RUNNER_TEMP/Panda-Voice.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Panda Voice Android 1.0.0" --prerelease --notes "Installable debug-signed Android APK for Panda Voice. Download Panda-Voice.apk to install."
+          fi
